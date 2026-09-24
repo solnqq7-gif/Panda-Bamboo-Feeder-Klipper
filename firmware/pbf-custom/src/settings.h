@@ -55,6 +55,9 @@ struct Settings {
   String sensor;
   bool lock_printing = true;     // keys and web moves disabled while the printer is printing
   bool pause_on_stuck = true;    // send PAUSE + push notification on a stuck alarm
+  uint16_t nofeed_mm = 100;      // printing, and the printer has extruded this much without the
+                                 // buffer ever emptying: the filament is not coming through the
+                                 // feeder, alarm like a jam. 0 = off.
   bool stop_at_extruder = true;  // a load ends when the filament sensor sees the filament
   uint16_t extruder_extra_mm = 10;  // fed after the sensor triggers; up to kMaxExtraMm for a
                                     // sensor far from the extruder (next to the spool)

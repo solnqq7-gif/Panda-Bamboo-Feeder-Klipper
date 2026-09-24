@@ -24,9 +24,14 @@ Traditional Chinese.
 - **Runout**: when the tail leaves the feeder, it stops and leaves the rest to the printer.
 - **Manual refill during a print**: insert new filament after a runout. The feeder grabs and
   preloads it, then pushes it down the tube until it butts against the old tail. For 3 minutes
-  after a preload, the jam check allows the whole path length for this.
+  after a preload, the jam check allows the whole path length for this. When the joint nears the
+  extruder, the feeder keeps pressure on the new filament until the extruder takes it in.
 - **Jam detection**: if the buffer never refills, it can send `PAUSE` and a Mobileraker
   push notification.
+- **No-feed alarm**: while printing, if the printer extrudes 100 mm (configurable) and the buffer
+  never empties, the filament is not coming through the feeder (extruder grinding or clogged, new
+  filament not taken in). It pauses the print and sends a push notification. It is measured in
+  printer extrusion, not time.
 - **Standby**: releases the gear (no holding current) while the printer is idle and cold, and
   grips again as soon as it heats.
 - **Setup tests**: buffer travel, plus the lowest run and holding currents that work.
@@ -37,9 +42,9 @@ Traditional Chinese.
 
 ## Status
 
-Version 0.10.0. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
+Version 0.11.0. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
 but have not been tested yet. Firmware binaries will be published under **Releases** once
-v0.10.0 has been verified on the hardware.
+the current version has been verified on the hardware.
 
 ## Requirements
 

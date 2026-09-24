@@ -82,6 +82,20 @@ constexpr uint32_t kInsertTimeoutMs = 15000;
 // buffer then pushes it down the tube until it butts against the old tail. That can take the
 // whole path length with the carriage still home, which the normal stuck check would call a jam.
 constexpr uint32_t kRefillGraceMs = 180000;  // this long after a preload, top-ups may go that far
+// Once the joint between the old tail and the new filament reaches the printer's extruder, the new
+// tip has to be pushed into its gears; the buffer spring alone may not do it. So while a refill is
+// under way the feeder keeps the buffer pushed out to the end of its travel (pressure pushes).
+constexpr float kRefillPushEarlyMm = 100.0f;  // start this long before the joint should arrive
+constexpr float kRefillDoneMm = 100.0f;       // the joint is this far past the extruder gear ...
+constexpr int kRefillDoneTopUps = 2;          // ... and the printer has emptied the buffer this often
+                                              // since the joint passed it
+constexpr float kRefillGiveUpMm = 300.0f;     // this far past the expected joint: stop pushing
+constexpr uint32_t kRefillPushMs = 1500;      // one pressure push at most this often
+constexpr float kRefillPushSpeed = 8.0f;      // mm/s
+constexpr float kRefillPushMaxMm = 25.0f;     // longer than the carriage travel: push to the end
+constexpr float kRefillPushCapMm = 30.0f;     // pushed this much in total and the printer has taken
+                                              // nothing: stop adding, the spring and the holding
+                                              // current keep the pressure on
 constexpr float kPreloadSpeed = 15.0f;
 constexpr float kSoftLoadMm = 40.0f;   // last part of a load, slow, to meet the extruder gently
 constexpr float kSoftLoadSpeed = 8.0f;
@@ -142,8 +156,10 @@ constexpr float kBtestHeadroomMm = 5.0f;    // kept free at the outer end for th
 constexpr float kBtestSpreadMm = 3.0f;      // runs further apart than this = not trustworthy
 constexpr uint8_t kBtestMinOverfeed = 3;
 constexpr uint8_t kBtestMaxOverfeed = 25;   // same cap as settings.cpp
-constexpr uint32_t kBufSummaryMs = 10000;  // one buffer summary line at most this often
-constexpr uint32_t kBufQuietMs = 3000;     // ... or once the top-ups stop for this long
+// While printing a top-up comes every few seconds; a line for each filled the 80-line log in a
+// few minutes and pushed out everything else, so they are summed up per minute.
+constexpr uint32_t kBufSummaryMs = 60000;  // one buffer summary line at most this often
+constexpr uint32_t kBufQuietMs = 30000;    // ... or once the top-ups stop for this long
 constexpr uint32_t kReleaseDelayMs = 300;
 constexpr uint32_t kUiPeriodMs = 200;
 constexpr uint32_t kArrowPeriodMs = 40;  // feed arrow frames between full ones (a top-up is ~0.5 s)
@@ -191,6 +207,20 @@ bool buffer_stalled = false;    // last top-up ended because the carriage stoppe
 bool boosted = false;
 bool episode_refill = false;   // this top-up started within kRefillGraceMs of a preload
 bool refill_logged = false;
+bool episode_push = false;     // a refill pressure push, not a top-up the printer asked for
+
+// refill assist: from a preload during a print until the printer takes the new filament
+bool runout_used_known = false;
+float runout_used = 0;         // printer filament_used when the old tail left the gear
+bool refill_assist = false;
+bool refill_pushing = false;   // the joint is near the extruder, pressure pushes are on
+uint8_t refill_topups = 0;     // printer-driven top-ups since the joint should have passed
+uint32_t refill_push_ms = 0;
+float refill_pushed_mm = 0;    // pushed since the printer last emptied the buffer
+
+// no-feed watch (see nofeedTick)
+bool nofeed_armed = false;
+float nofeed_used0 = 0;        // printer filament_used when the watch last restarted
 String feed_prev_msg;  // READY's message before the top-up: the screen keeps showing it and it
                        // comes back afterwards, so a top-up does not make the text flicker
 
@@ -474,6 +504,12 @@ void logLockHeld() {
 // The tail left the drive gear: nothing to push any more, the printer handles the runout.
 void enterRunout(const char *msg) {
   motor::release();
+  // Where the old tail was when it left the gear, in printer extrusion: a refill uses it to tell
+  // when the joint with the new filament reaches the extruder.
+  moonraker::Snapshot k1 = moonraker::snapshot();
+  runout_used_known = k1.fresh && k1.print_state == moonraker::PrintState::kPrinting;
+  runout_used = k1.filament_used;
+  refill_assist = false;
   enter(State::kTailOut, msg);
   if (tail_passed && cfg().notify_runout) {
     String body = String("料尾已離開喂竹器，") + pn() + " 將執行斷料流程";
@@ -482,6 +518,8 @@ void enterRunout(const char *msg) {
 }
 
 // ---- Actions ----
+
+void preloadDone();  // refill assist, below
 
 void startInsert() {
   tail_passed = false;
@@ -495,7 +533,7 @@ void startPreload() {
   tail_passed = false;
   if (cfg().preload_mm == 0) {
     motor::halt();
-    preload_done_ms = millis();
+    preloadDone();
     enter(State::kStaged, "press UP to load");
     io::beep(1);
     return;
@@ -574,8 +612,9 @@ float stuckLimitMm() {
   return cfg().stuck_mm + (episode_refill ? pathMm() : 0.0f);
 }
 
-void startFeedingEpisode() {
+void startFeedingEpisode(bool push = false) {
   if (state == State::kReady) feed_prev_msg = message;
+  episode_push = push;
   episode_refill = preload_done_ms && millis() - preload_done_ms < kRefillGraceMs && !testActive();
   refill_logged = false;
   episode_start_pos = pos();
@@ -585,8 +624,127 @@ void startFeedingEpisode() {
   buffer_stalled = false;
   io::resetBufPosEdges();
   applyPressure();
+  if (push) {
+    boosted = true;  // a push is slow on purpose
+    motor::run(Dir::kFeed, kRefillPushSpeed);
+    enter(State::kFeeding, "refill: pressure push");
+    return;
+  }
   motor::run(Dir::kFeed, cfg().buffer_speed);
   enter(State::kFeeding, "buffer empty: topping up");
+}
+
+// ---- Refill assist ----
+// A preload during a print, after the old tail ran out, is a refill by hand. The new filament is
+// pushed down the tube to the old tail by ordinary top-ups; the hard part is the moment the joint
+// reaches the extruder, where the new tip must be pushed into gears that were pulling the old
+// tail. From shortly before then until the printer is clearly pulling the new filament, the buffer
+// is kept pushed out to the end of its travel, so the tip is pressed into the gears all the time.
+
+void endRefill(const char *why) {
+  if (!refill_assist) return;
+  refill_assist = false;
+  refill_pushing = false;
+  logf("refill: %s", why);
+}
+
+void preloadDone() {
+  preload_done_ms = millis();
+  moonraker::Snapshot k1 = moonraker::snapshot();
+  bool printing = k1.fresh && k1.print_state == moonraker::PrintState::kPrinting;
+  refill_assist = runout_used_known && printing;
+  runout_used_known = false;
+  if (!refill_assist) return;
+  refill_pushing = false;
+  refill_topups = 0;
+  refill_pushed_mm = 0;
+  float left = pathMm() - (k1.filament_used - runout_used);
+  logf("refill: new filament during a print; the joint reaches the %s extruder after about "
+       "%.0f mm more printing, the feeder keeps pressure on it from then until it is taken in",
+       pn(), max(0.0f, left));
+}
+
+// Called while READY. True when it started a pressure push.
+bool refillTick(const io::Sensors &s, uint32_t now) {
+  if (!refill_assist) return false;
+  moonraker::Snapshot k1 = moonraker::snapshot();
+  if (!k1.fresh) return false;
+  if (k1.print_state != moonraker::PrintState::kPrinting) {
+    endRefill("stopped, the print is not running");
+    return false;
+  }
+  float consumed = k1.filament_used - runout_used;
+  float joint = pathMm();
+  if (consumed < 0) {
+    endRefill("stopped, a new print started");
+    return false;
+  }
+  if (consumed >= joint + kRefillDoneMm && refill_topups >= kRefillDoneTopUps) {
+    endRefill("done, the printer is pulling the new filament");
+    message = "refill done";
+    return false;
+  }
+  if (consumed > joint + kRefillGiveUpMm) {
+    endRefill("gave up pushing; the no-feed alarm catches it if the new filament is not taken in");
+    return false;
+  }
+  if (consumed < joint - kRefillPushEarlyMm) return false;  // the old tail is still ahead
+  if (!refill_pushing) {
+    refill_pushing = true;
+    logf("refill: the joint is near the %s extruder (%.0f of about %.0f mm), keeping pressure on it",
+         pn(), consumed, joint);
+    message = "refill: pushing new filament in";
+  }
+  if (motor::isMoving() || jogging || !bufferFull(s) || now - refill_push_ms < kRefillPushMs ||
+      refill_pushed_mm >= kRefillPushCapMm) {
+    return false;
+  }
+  refill_push_ms = now;
+  startFeedingEpisode(true);
+  return true;
+}
+
+// ---- No-feed watch ----
+// While printing, every millimetre the printer extrudes comes out of the buffer, so it empties
+// and gets topped up every ~20 mm. If the printer keeps extruding and the buffer never empties,
+// the filament is not coming through the feeder: the extruder is grinding or clogged, the new
+// filament after a refill was not taken in, or the carriage sensor is stuck. Measured in printer
+// extrusion rather than time, so heating, probing and slow layers cannot trip it.
+void nofeedTick() {
+  moonraker::Snapshot k1 = moonraker::snapshot();
+  bool watch = cfg().nofeed_mm && k1.fresh && k1.print_state == moonraker::PrintState::kPrinting &&
+               !testActive() && (state == State::kReady || (state == State::kFeeding && episode_push));
+  if (!watch) {
+    nofeed_armed = false;  // a top-up, a pause, another state: start over next time
+    return;
+  }
+  if (!nofeed_armed || k1.filament_used < nofeed_used0) {
+    nofeed_armed = true;
+    nofeed_used0 = k1.filament_used;
+    return;
+  }
+  float used = k1.filament_used - nofeed_used0;
+  if (used < cfg().nofeed_mm) return;
+  nofeed_armed = false;
+  refill_assist = refill_pushing = false;
+  stats::addStuck();
+  enterAlarm(State::kStuck, "no feed: " + String(pn()) + " used " + String(used, 0) + "mm");
+  logf("no feed: %s extruded %.0f mm while printing and the buffer never emptied - the filament "
+       "is not coming through the feeder (extruder grinding or clogged, new filament not taken in, "
+       "or the carriage sensor stuck)",
+       pn(), used);
+  if (cfg().pause_on_stuck) {
+    moonraker::sendGcode("PAUSE");
+    String body = String(pn()) + " 已經擠出 " + String(used, 0) +
+                  "mm，喂竹器一直沒有輔助進料：請檢查擠出機有沒有吃料";
+    moonraker::notify("PBF: 沒有輔助進料", body.c_str());
+  }
+}
+
+// How far the no-feed watch has got, -1 when it is not watching (for /api/status).
+float nofeedUsed() {
+  if (!nofeed_armed) return -1;
+  return moonraker::snapshot().filament_used - nofeed_used0;
 }
 
 // ---- Pressure test ----
@@ -1341,7 +1499,18 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
         overfeed_edge_pos = pos();
       }
       bool stalled = pos() - overfeed_edge_pos >= kOverfeedStallMm;
-      if (stalled || pos() - overfeed_start_pos >= cfg().overfeed_mm) {
+      float park = episode_push ? kRefillPushMaxMm : cfg().overfeed_mm;
+      if (episode_push && (stalled || pos() - overfeed_start_pos >= park)) {
+        motor::stop();  // a pressure push: not a top-up, so no statistics or summary line
+        refill_pushed_mm += pos() - episode_start_pos;
+        if (refill_pushed_mm >= kRefillPushCapMm) {
+          logf("refill: pushed %.0f mm and the %s extruder has not taken any, holding the "
+               "pressure until it does", refill_pushed_mm, pn());
+        }
+        enter(State::kReady, feed_prev_msg);
+        return;
+      }
+      if (stalled || pos() - overfeed_start_pos >= park) {
         motor::stop();
         last_topup.home_mm = overfeed_start_pos - episode_start_pos;
         last_topup.over_mm = pos() - overfeed_start_pos;
@@ -1366,12 +1535,23 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
         buf_cycle_mm += fed;
         buf_last_cycle_ms = millis();
         arrow_full_until_ms = millis() + kArrowFullMs;
+        if (refill_assist) {
+          refill_pushed_mm = 0;  // the printer pulled: pushing may go on
+          moonraker::Snapshot k1 = moonraker::snapshot();
+          if (k1.fresh && k1.filament_used - runout_used >= pathMm()) refill_topups++;
+        }
         enter(State::kReady, feed_prev_msg);
         return;
       }
     }
   } else {
     overfeeding = false;
+    // The printer emptied the buffer during a pressure push: it is pulling, so this is a real
+    // top-up now.
+    if (episode_push) {
+      episode_push = false;
+      motor::setSpeed(cfg().buffer_speed);
+    }
   }
   if (!boosted && millis() - episode_start_ms > kBoostAfterMs) {
     boosted = true;
@@ -1739,7 +1919,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         motor::halt();
         enter(s.in1 ? State::kInsertWait : State::kEmpty, "filament lost");
       } else if (!motor::isMoving()) {
-        preload_done_ms = millis();
+        preloadDone();
         enter(State::kStaged, "press UP to load");
         io::beep(1);
       }
@@ -1844,6 +2024,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         message = "spool empty soon";
         logf("tail passed the inlet sensor");
       }
+      if (refillTick(s, now)) break;
       if (!jogging && !motor::isMoving() && bufferEmpty(s) && !btestOwnsMotor()) {
         uint32_t blocked_ms = topUpBlockRemainingMs(now);
         if (blocked_ms) {
@@ -2344,6 +2525,7 @@ void update() {
   }
   freeTick(now);
   if (!ui::menuActive()) runState(s, now);
+  nofeedTick();
   ptestTick(now);
   btestTick(now);
   flushBufferSummary(now);
@@ -2556,6 +2738,8 @@ void appendStatusJson(String &out) {
   out += ",\"free_blocked\":" + String(free_blocked ? 1 : 0);
   out += ",\"topup_block_s\":" + String((topUpBlockRemainingMs(millis()) + 999) / 1000);
   out += ",\"standby_in_s\":" + String(standbyInS(millis()));
+  out += ",\"refill\":" + String(refill_assist ? (refill_pushing ? 2 : 1) : 0);
+  out += ",\"nofeed_used\":" + String(nofeedUsed(), 0);
   out += ",\"free_src\":";
   logbuf::appendJsonString(out, state != State::kFree ? ""
                                 : free_from_k1 ? "marker" : free_from_retract ? "retract" : "manual");

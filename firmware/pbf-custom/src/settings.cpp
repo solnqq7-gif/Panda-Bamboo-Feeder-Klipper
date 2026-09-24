@@ -38,6 +38,7 @@ void sanitize(Settings &s) {
   s.unload_mm = clampValue<uint16_t>(s.unload_mm, 1, kMaxMoveMm);
   s.unload_measured_mm = clampValue<uint16_t>(s.unload_measured_mm, 0, kMaxMoveMm);
   s.stuck_mm = clampValue<uint16_t>(s.stuck_mm, 30, 500);
+  if (s.nofeed_mm) s.nofeed_mm = clampValue<uint16_t>(s.nofeed_mm, 30, 2000);
   s.overfeed_mm = clampValue<uint8_t>(s.overfeed_mm, 0, 25);
   s.ptest_temp = clampValue<uint16_t>(s.ptest_temp, 150, 300);
   s.load_speed = clampValue<uint8_t>(s.load_speed, 5, 60);
@@ -137,6 +138,7 @@ void load() {
   current.printer_port = prefs.getUShort("k1_port", d.printer_port);
   current.lock_printing = prefs.getBool("k1_lock", d.lock_printing);
   current.pause_on_stuck = prefs.getBool("k1_pause", d.pause_on_stuck);
+  current.nofeed_mm = prefs.getUShort("nofeed_mm", d.nofeed_mm);
   current.stop_at_extruder = prefs.getBool("k1_stopext", d.stop_at_extruder);
   // Was one byte ("k1_extra", max 100) before v0.10.0.
   current.extruder_extra_mm = prefs.isKey("ext_extra") ? prefs.getUShort("ext_extra", d.extruder_extra_mm)
@@ -191,6 +193,7 @@ void save() {
   prefs.putUShort("k1_port", current.printer_port);
   prefs.putBool("k1_lock", current.lock_printing);
   prefs.putBool("k1_pause", current.pause_on_stuck);
+  prefs.putUShort("nofeed_mm", current.nofeed_mm);
   prefs.putBool("k1_stopext", current.stop_at_extruder);
   prefs.putUShort("ext_extra", current.extruder_extra_mm);
   if (prefs.isKey("k1_extra")) prefs.remove("k1_extra");
@@ -251,6 +254,7 @@ void appendJson(String &out) {
   out += ",\"api_key_set\":" + String(s.api_key.length() ? "true" : "false");
   out += ",\"lock_printing\":" + String(s.lock_printing ? "true" : "false");
   out += ",\"pause_on_stuck\":" + String(s.pause_on_stuck ? "true" : "false");
+  out += ",\"nofeed_mm\":" + String(s.nofeed_mm);
   out += ",\"stop_at_extruder\":" + String(s.stop_at_extruder ? "true" : "false");
   out += ",\"extruder_extra_mm\":" + String(s.extruder_extra_mm);
   out += ",\"path_margin_mm\":" + String(s.path_margin_mm);
@@ -319,6 +323,7 @@ bool set(const String &name, const String &value, bool persist) {
   else if (name == "printer_port") s.printer_port = n;
   else if (name == "lock_printing") s.lock_printing = on;
   else if (name == "pause_on_stuck") s.pause_on_stuck = on;
+  else if (name == "nofeed_mm") s.nofeed_mm = n;
   else if (name == "stop_at_extruder") s.stop_at_extruder = on;
   else if (name == "extruder_extra_mm") s.extruder_extra_mm = n;
   else if (name == "path_margin_mm") s.path_margin_mm = n;

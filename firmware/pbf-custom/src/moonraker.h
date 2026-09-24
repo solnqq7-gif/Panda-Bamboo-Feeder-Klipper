@@ -15,6 +15,8 @@ struct Snapshot {
   PrintState print_state = PrintState::kUnknown;
   float extruder_velocity = 0;  // mm/s, negative = retracting
   float extruder_pos = 0;       // motion_report.live_position[3], resets on G92 E
+  float filament_used = 0;      // print_stats.filament_used: mm the printer has extruded in this
+                                // print (net of retractions, immune to G92), 0 between prints
   // The Klipper filament sensor chosen in the settings (or picked automatically) that tells
   // when the filament has reached the extruder. On a K1 that is filament_sensor_2 on the toolhead.
   bool ext_sensor = false;

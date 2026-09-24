@@ -160,6 +160,7 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
   <label>耗材感測器（判斷料到擠出機）<select name="sensor"></select></label>
   <label>列印中鎖定按鍵與網頁進退料<input type="checkbox" name="lock_printing"></label>
   <label>卡料時暫停 %P 並推播<input type="checkbox" name="pause_on_stuck"></label>
+  <label>列印中擠出這麼多還沒輔助進料就警報 (mm，0＝關閉)<input type="number" name="nofeed_mm" min="0" max="2000"></label>
   <label>進料到擠出機自動停（耗材感測器）<input type="checkbox" name="stop_at_extruder"></label>
   <label>感測器偵測到料後再送 (mm，最多 5000)<input type="number" name="extruder_extra_mm" min="0" max="5000"></label>
   <label>路徑校準餘裕 (mm)<input type="number" name="path_margin_mm" min="0" max="250"></label>
@@ -228,6 +229,8 @@ async function refresh(){
     $('#info').textContent=`${s.moving?'馬達運轉中・':''}本次移動 ${s.move_mm}mm・壓力 L${s.pressure}（${s.current_ma}mA）・位置 ${s.pos}mm`
       +`・退料訊號 ${s.free?({marker:'M117 放開',retract:'回抽判定 放開',manual:'手動 放開'})[s.free_src]:(s.k1_pbf_mode===2?'M117 同步':(s.k1_pbf_display||s.k1_pbf_macro?'待命':'無法讀取'))}`
       +(s.topup_block_s?`・輔助進料保護 ${s.topup_block_s}s`:'')
+      +(s.refill?(s.refill===2?'・續料：推新料進擠出機中':'・續料：等接頭到擠出機'):'')
+      +(s.nofeed_used>=30?`・已擠出 ${s.nofeed_used}mm 沒輔助進料`:'')
       +(s.state==='STANDBY'?`・${PN} 加熱、列印或按任一鍵就會喚醒`:s.standby_in_s>=0?`・${mmss(s.standby_in_s)} 後省電待機`:'')
       +`・WiFi ${s.wifi_mode} ${s.ip}${s.rssi?'（'+s.rssi+' dBm）':''}`;
     if(s.stats){const t=s.stats;$('#stats').innerHTML=

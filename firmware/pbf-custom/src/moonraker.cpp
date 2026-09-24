@@ -18,7 +18,7 @@ constexpr uint32_t kHttpTimeoutMs = 1500;
 constexpr uint32_t kGcodeTimeoutMs = 15000;  // PAUSE waits for the moves to finish
 constexpr size_t kGcodeLen = 200;
 constexpr const char *kQuery =
-    "/printer/objects/query?print_stats=state&webhooks=state"
+    "/printer/objects/query?print_stats=state,filament_used&webhooks=state"
     "&motion_report=live_extruder_velocity,live_position"
     "&extruder=temperature,target,can_extrude";
 // Only appended once the objects are known to exist. Current Klipper answers an unknown object
@@ -261,6 +261,7 @@ bool poll(HTTPClient &http) {
   snap.fresh = true;
   snap.klippy_ready = strcmp(st["webhooks"]["state"] | "", "ready") == 0;
   snap.print_state = parseState(st["print_stats"]["state"] | "");
+  snap.filament_used = st["print_stats"]["filament_used"] | 0.0f;
   snap.extruder_velocity = st["motion_report"]["live_extruder_velocity"] | 0.0f;
   snap.extruder_pos = st["motion_report"]["live_position"][3] | 0.0f;
   if (sensor_obj.length()) {
