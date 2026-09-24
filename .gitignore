@@ -1,0 +1,25 @@
+# Allowlist: everything is ignored unless it is un-ignored below. The project folder also holds
+# private material (flash backups with WiFi credentials, logs, the stock firmware and its
+# disassembly), so nothing gets published by accident.
+/*
+!/.gitignore
+!/README.md
+!/繁中README.md
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+
+!/docs/
+/docs/*
+!/docs/使用說明.md
+!/docs/安裝說明.md
+!/docs/tip-forming.md
+!/docs/tip-forming-generic.md
+
+!/firmware/
+/firmware/*
+!/firmware/pbf-custom/
+/firmware/pbf-custom/*
+!/firmware/pbf-custom/src/
+!/firmware/pbf-custom/platformio.ini
+!/firmware/pbf-custom/partitions_stock.csv
+!/firmware/pbf-custom/strip_paths.py
