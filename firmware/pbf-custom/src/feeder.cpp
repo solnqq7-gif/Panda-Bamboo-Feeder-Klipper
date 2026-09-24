@@ -78,6 +78,10 @@ const char *hintFor(State s) {
 // ---- Tuning ----
 constexpr float kInsertSpeed = 8.0f;
 constexpr uint32_t kInsertTimeoutMs = 15000;
+// Refilling by hand during a print: new filament inserted after a runout is preloaded, and the
+// buffer then pushes it down the tube until it butts against the old tail. That can take the
+// whole path length with the carriage still home, which the normal stuck check would call a jam.
+constexpr uint32_t kRefillGraceMs = 180000;  // this long after a preload, top-ups may go that far
 constexpr float kPreloadSpeed = 15.0f;
 constexpr float kSoftLoadMm = 40.0f;   // last part of a load, slow, to meet the extruder gently
 constexpr float kSoftLoadSpeed = 8.0f;
@@ -152,6 +156,7 @@ String message;
 io::Sensors prev{};
 bool verbose = false;
 bool tail_passed = false;  // spool ran out, tail is between the inlet and the gear
+uint32_t preload_done_ms = 0;  // when the last preload finished, 0 = none since boot
 bool jogging = false;
 bool web_hold = false;         // jog held from the web page, kept alive by repeated requests
 uint32_t web_hold_deadline = 0;
@@ -184,6 +189,8 @@ uint32_t overfeed_edges = 0;    // comb edge count when the carriage last moved
 float overfeed_edge_pos = 0;
 bool buffer_stalled = false;    // last top-up ended because the carriage stopped moving
 bool boosted = false;
+bool episode_refill = false;   // this top-up started within kRefillGraceMs of a preload
+bool refill_logged = false;
 String feed_prev_msg;  // READY's message before the top-up: the screen keeps showing it and it
                        // comes back afterwards, so a top-up does not make the text flicker
 
@@ -488,6 +495,7 @@ void startPreload() {
   tail_passed = false;
   if (cfg().preload_mm == 0) {
     motor::halt();
+    preload_done_ms = millis();
     enter(State::kStaged, "press UP to load");
     io::beep(1);
     return;
@@ -545,19 +553,31 @@ void startUnload(float limit_mm, bool full) {
 // How far a full unload is allowed to pull before it counts as jammed. Every setup has a
 // different path length, so the feeder measures its own: the last unload that actually got the
 // tip out of the gear sets the yardstick, and only until then is the preload + load estimate used.
+// The whole way from the gear to the extruder, as far as the settings know it: a load that stops
+// at the sensor goes extruder_extra_mm past it, and the calibrated load length only reaches it.
+float pathMm() {
+  return cfg().load_mm + (cfg().stop_at_extruder ? cfg().extruder_extra_mm : 0);
+}
+
 float fullUnloadLimit() {
   if (cfg().lock_move_distance) return cfg().unload_mm;
   if (cfg().unload_measured_mm) {
     return cfg().unload_measured_mm * kUnloadLearnMargin + kUnloadExtraMm;
   }
-  // A load that stops at the sensor goes extruder_extra_mm past it, and the calibrated load
-  // length only reaches the sensor.
-  float extra = cfg().stop_at_extruder ? cfg().extruder_extra_mm : 0;
-  return cfg().preload_mm + cfg().load_mm + extra + kUnloadMarginMm;
+  return cfg().preload_mm + pathMm() + kUnloadMarginMm;
+}
+
+// How far a top-up may feed with the carriage still home before it counts as stuck. Right after
+// a preload the new filament may first have to cross the tube (see kRefillGraceMs), so the limit
+// grows by the path length - still a limit, so a real jam then cannot bury metres of filament.
+float stuckLimitMm() {
+  return cfg().stuck_mm + (episode_refill ? pathMm() : 0.0f);
 }
 
 void startFeedingEpisode() {
   if (state == State::kReady) feed_prev_msg = message;
+  episode_refill = preload_done_ms && millis() - preload_done_ms < kRefillGraceMs && !testActive();
+  refill_logged = false;
   episode_start_pos = pos();
   episode_start_ms = millis();
   overfeeding = false;
@@ -1357,7 +1377,13 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
     boosted = true;
     motor::setSpeed(cfg().buffer_speed * kBoostFactor);
   }
-  if (!tail_passed && bufferEmpty(s) && fed > cfg().stuck_mm) {
+  if (episode_refill && !refill_logged && bufferEmpty(s) && fed > cfg().stuck_mm) {
+    refill_logged = true;
+    logf("refill: %.0f mm fed and the buffer is still empty - a preload was under %lu min ago, "
+         "so up to %.0f mm is allowed for the new filament to reach the old tail",
+         fed, (unsigned long)(kRefillGraceMs / 60000), stuckLimitMm());
+  }
+  if (!tail_passed && bufferEmpty(s) && fed > stuckLimitMm()) {
     stats::addStuck();
     enterAlarm(State::kStuck, "fed " + String(fed, 0) + "mm, buffer still empty");
     if (cfg().pause_on_stuck && !testActive()) {
@@ -1713,6 +1739,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         motor::halt();
         enter(s.in1 ? State::kInsertWait : State::kEmpty, "filament lost");
       } else if (!motor::isMoving()) {
+        preload_done_ms = millis();
         enter(State::kStaged, "press UP to load");
         io::beep(1);
       }
