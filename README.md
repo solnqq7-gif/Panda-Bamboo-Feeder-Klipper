@@ -22,6 +22,9 @@ Traditional Chinese.
   forming) and `M117 PBF:FOLLOW` (follow the printer's extruder both ways). Without markers, a
   long retraction while not printing is treated as an unload.
 - **Runout**: when the tail leaves the feeder, it stops and leaves the rest to the printer.
+- **Manual refill during a print**: insert new filament after a runout. The feeder grabs and
+  preloads it, then pushes it down the tube until it butts against the old tail. For 3 minutes
+  after a preload, the jam check allows the whole path length for this.
 - **Jam detection**: if the buffer never refills, it can send `PAUSE` and a Mobileraker
   push notification.
 - **Standby**: releases the gear (no holding current) while the printer is idle and cold, and
