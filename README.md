@@ -42,7 +42,7 @@ Traditional Chinese.
 
 ## Status
 
-Version 0.11.0. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
+Version 0.11.1. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
 but have not been tested yet. Firmware binaries will be published under **Releases** once
 the current version has been verified on the hardware.
 

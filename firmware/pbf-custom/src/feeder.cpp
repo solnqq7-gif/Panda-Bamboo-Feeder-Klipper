@@ -268,7 +268,9 @@ State follow_return = State::kReady;
 float follow_start_pos = 0;
 float follow_recent_mm = 0;   // followed in the last few retractions, to spot an unload
 uint32_t follow_last_ms = 0;
-bool buffer_blocked = false;    // logged once while the printer has no filament to push against
+// Why READY is holding top-ups back, so each reason is logged once.
+enum class TopUpHold : uint8_t { kNone, kAnchor, kHeaterOff };
+TopUpHold buffer_blocked = TopUpHold::kNone;
 
 // unloading
 float load_target_mm = 0;
@@ -472,6 +474,19 @@ bool printerCanAnchor() {
   anchor_reason = "reports its extruder empty (unloaded)";
   anchor_waiting = false;
   return k1.ext_sensor;
+}
+
+// A top-up replaces filament the printer used, and a printer whose nozzle target is 0 is not
+// going to use any: it is idle, or running its end-of-print macro, which Klipper still reports as
+// "printing". The carriage can read empty then all the same - the K1's END_PRINT retracts and
+// swings the head to the far edge, and once the printer tube came out of the extruder's fitting
+// right there, leaving the carriage home, so the next top-up shoved 80 mm into a loose tube and
+// the stuck alarm paused a finished print. Holding off until the printer heats again avoids that.
+// An unknown or stale reading does not count, so a print with a dropped link keeps its buffer.
+bool printerHeaterOff() {
+  if (testActive()) return false;  // the pressure test sets the temperature itself
+  moonraker::Snapshot k1 = moonraker::snapshot();
+  return k1.fresh && k1.nozzle_known && k1.nozzle_target <= 0;
 }
 
 // K1 is printing and the user asked for the keys to be locked meanwhile. A lost link keeps the
@@ -696,7 +711,7 @@ bool refillTick(const io::Sensors &s, uint32_t now) {
     message = "refill: pushing new filament in";
   }
   if (motor::isMoving() || jogging || !bufferFull(s) || now - refill_push_ms < kRefillPushMs ||
-      refill_pushed_mm >= kRefillPushCapMm) {
+      refill_pushed_mm >= kRefillPushCapMm || printerHeaterOff()) {
     return false;
   }
   refill_push_ms = now;
@@ -712,8 +727,10 @@ bool refillTick(const io::Sensors &s, uint32_t now) {
 // extrusion rather than time, so heating, probing and slow layers cannot trip it.
 void nofeedTick() {
   moonraker::Snapshot k1 = moonraker::snapshot();
+  // Not while top-ups are held back for a heater that is off: the buffer is not meant to empty.
   bool watch = cfg().nofeed_mm && k1.fresh && k1.print_state == moonraker::PrintState::kPrinting &&
-               !testActive() && (state == State::kReady || (state == State::kFeeding && episode_push));
+               !testActive() && !printerHeaterOff() &&
+               (state == State::kReady || (state == State::kFeeding && episode_push));
   if (!watch) {
     nofeed_armed = false;  // a top-up, a pause, another state: start over next time
     return;
@@ -1480,6 +1497,15 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
     logf("tail passed the inlet sensor");
   }
   float fed = pos() - episode_start_pos;
+  if (printerHeaterOff()) {
+    // The printer turned its heater off in the middle of a top-up: the print is ending and the
+    // printer will not take this filament (see printerHeaterOff).
+    motor::stop();
+    logf("buffer: top-up stopped after %.0f mm, %s turned its heater off", fed, pn());
+    buffer_blocked = TopUpHold::kHeaterOff;
+    enter(State::kReady, String(pn()) + " heater off");
+    return;
+  }
   if (bufferFull(s)) {
     // The carriage has left its rest stop; keep pushing a little so the buffer parks with some
     // slack in it. Parking right at the rest stop means the printer has to break the carriage
@@ -2031,11 +2057,17 @@ void runState(const io::Sensors &s, uint32_t now) {
           if (!maybeStartFollowing()) {
             message = "unload guard: no top-up, " + String((blocked_ms + 999) / 1000) + "s";
           }
+        } else if (printerHeaterOff()) {
+          if (buffer_blocked != TopUpHold::kHeaterOff) {
+            buffer_blocked = TopUpHold::kHeaterOff;
+            message = String(pn()) + " heater off";
+            logf("buffer: not topping up, %s heater is off (print ending, or idle)", pn());
+          }
         } else if (printerCanAnchor()) {
-          buffer_blocked = false;
+          buffer_blocked = TopUpHold::kNone;
           startFeedingEpisode();
-        } else if (!buffer_blocked) {
-          buffer_blocked = true;
+        } else if (buffer_blocked != TopUpHold::kAnchor) {
+          buffer_blocked = TopUpHold::kAnchor;
           message = anchor_waiting ? String("waiting for ") + pn() : String(pn()) + " extruder empty";
           logf("buffer: not topping up, %s %s", pn(), anchor_reason);
         }

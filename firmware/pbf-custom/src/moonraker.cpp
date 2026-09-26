@@ -271,6 +271,7 @@ bool poll(HTTPClient &http) {
   }
   snap.nozzle_temp = st["extruder"]["temperature"] | 0.0f;
   snap.nozzle_target = st["extruder"]["target"] | 0.0f;
+  snap.nozzle_known = !st["extruder"]["target"].isNull();
   snap.can_extrude = st["extruder"]["can_extrude"] | false;
   snap.pbf_macro = macro_present;
   snap.pbf_display = display_present;

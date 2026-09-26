@@ -23,6 +23,7 @@ struct Snapshot {
   bool ext_sensor_present = false;  // a sensor is in use and the printer reports it
   float nozzle_temp = 0;        // extruder temperature / target, for the pressure test
   float nozzle_target = 0;
+  bool nozzle_known = false;    // the printer reported a target (so 0 really means "off")
   bool can_extrude = false;     // Klipper allows extruding (hot enough)
   // How a G-code script tells the feeder what it is about to do. Two channels, either is
   // enough: an M117 PBF marker (needs nothing in printer.cfg) or a [gcode_macro PBF]
