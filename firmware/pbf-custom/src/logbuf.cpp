@@ -9,14 +9,21 @@ constexpr size_t kLines = 200;
 constexpr size_t kLineLen = 128;
 char ring[kLines][kLineLen];
 uint32_t next_seq = 0;  // sequence number of the next line to be written
+// The Moonraker task logs from the other core. Without this, two lines written at the same moment
+// took the same slot: one was lost and the next slot stayed empty.
+portMUX_TYPE ring_mux = portMUX_INITIALIZER_UNLOCKED;
 
 }  // namespace
 
 void line(const char *text) {
-  char *slot = ring[next_seq % kLines];
-  snprintf(slot, kLineLen, "[%9.3f] %s", millis() / 1000.0f, text);
+  char buf[kLineLen];
+  snprintf(buf, sizeof(buf), "[%9.3f] %s", millis() / 1000.0f, text);
+  size_t len = strlen(buf) + 1;
+  portENTER_CRITICAL(&ring_mux);
+  memcpy(ring[next_seq % kLines], buf, len);
   next_seq++;
-  Serial.println(slot);
+  portEXIT_CRITICAL(&ring_mux);
+  Serial.println(buf);
 }
 
 void logf(const char *fmt, ...) {
@@ -45,16 +52,25 @@ void appendJsonString(String &out, const char *s) {
 }
 
 uint32_t appendJsonSince(uint32_t since, String &out, size_t max_lines) {
-  uint32_t oldest = next_seq > kLines ? next_seq - kLines : 0;
+  portENTER_CRITICAL(&ring_mux);
+  uint32_t end = next_seq;
+  portEXIT_CRITICAL(&ring_mux);
+  uint32_t oldest = end > kLines ? end - kLines : 0;
   if (since < oldest) since = oldest;
-  if (next_seq - since > max_lines) since = next_seq - max_lines;
+  if (end - since > max_lines) since = end - max_lines;
   out += '[';
-  for (uint32_t seq = since; seq < next_seq; seq++) {
+  char buf[kLineLen];
+  for (uint32_t seq = since; seq < end; seq++) {
+    // Copy under the lock (a writer may be reusing the oldest slot), escape outside it.
+    portENTER_CRITICAL(&ring_mux);
+    memcpy(buf, ring[seq % kLines], kLineLen);
+    portEXIT_CRITICAL(&ring_mux);
+    buf[kLineLen - 1] = 0;
     if (seq != since) out += ',';
-    appendJsonString(out, ring[seq % kLines]);
+    appendJsonString(out, buf);
   }
   out += ']';
-  return next_seq;
+  return end;
 }
 
 }  // namespace logbuf

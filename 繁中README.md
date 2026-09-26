@@ -27,7 +27,7 @@ English: [`README.md`](README.md)
 
 ## 目前狀態
 
-v0.11.1。在 **Creality K1 Max** 上開發和使用。其他 Klipper 印表機應該可以用，但還沒有人實測。
+v0.11.2。在 **Creality K1 Max** 上開發和使用。其他 Klipper 印表機應該可以用，但還沒有人實測。
 燒錄用的 bin 檔會在目前版本實機驗證後放到 **Releases**。
 
 ## 需要

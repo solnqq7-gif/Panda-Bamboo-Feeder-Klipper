@@ -482,11 +482,62 @@ bool printerCanAnchor() {
 // swings the head to the far edge, and once the printer tube came out of the extruder's fitting
 // right there, leaving the carriage home, so the next top-up shoved 80 mm into a loose tube and
 // the stuck alarm paused a finished print. Holding off until the printer heats again avoids that.
-// An unknown or stale reading does not count, so a print with a dropped link keeps its buffer.
+// With the link down the last reading still counts: the K1 often stops answering for half a minute
+// right after a print, and v0.11.1, which ignored stale readings, pushed 82 mm into a loose tube
+// then. A print that loses the link keeps its buffer, because its last reading had the heater on.
+// Never having had a reading (or the link turned off) does not count.
 bool printerHeaterOff() {
   if (testActive()) return false;  // the pressure test sets the temperature itself
+  if (!cfg().k1_enabled || cfg().printer_host.isEmpty()) return false;
   moonraker::Snapshot k1 = moonraker::snapshot();
-  return k1.fresh && k1.nozzle_known && k1.nozzle_target <= 0;
+  return k1.nozzle_known && k1.nozzle_target <= 0;
+}
+
+// While top-ups are held for a cold printer nothing should move the carriage, because the printer
+// is not using filament. Each change is logged (a few per hold) with the printer's link state, so
+// the moment a tube lets go of its fitting - the carriage springs home - can be matched to the
+// printer's end-of-print moves.
+constexpr uint8_t kHeldEventsMax = 8;
+bool held_announced = false;  // this hold was logged
+bool held_known = false;      // held_rest is a valid baseline
+bool held_rest = false;
+uint32_t held_edges = 0;
+uint8_t held_events = 0;
+
+void heldCarriageTick(const io::Sensors &s) {
+  if (!printerHeaterOff()) {
+    held_announced = held_known = false;
+    held_events = 0;
+    return;
+  }
+  if (!held_announced) {
+    held_announced = true;
+    logf("buffer: not topping up, %s heater is off (print ending, or idle); carriage %s", pn(),
+         s.buf_rest ? "home" : "out");
+  }
+  // Our own moves (FOLLOW, keys) move the carriage too: start a new baseline after them.
+  if (motor::isMoving() || jogging) {
+    held_known = false;
+    return;
+  }
+  uint32_t edges = io::bufPosEdges();
+  if (!held_known) {
+    held_known = true;
+    held_rest = s.buf_rest;
+    held_edges = edges;
+    return;
+  }
+  if (s.buf_rest == held_rest) return;
+  held_rest = s.buf_rest;
+  if (held_events < kHeldEventsMax) {
+    held_events++;
+    moonraker::Snapshot k1 = moonraker::snapshot();
+    logf("buffer (held): carriage %s, %lu comb edges since the last change (%s %s%s)",
+         s.buf_rest ? "back home" : "left home", (unsigned long)(edges - held_edges), pn(),
+         moonraker::printStateName(k1.print_state), k1.fresh ? "" : ", link down");
+    if (held_events == kHeldEventsMax) logf("buffer (held): further carriage moves not logged");
+  }
+  held_edges = edges;
 }
 
 // K1 is printing and the user asked for the keys to be locked meanwhile. A lost link keeps the
@@ -2050,6 +2101,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         message = "spool empty soon";
         logf("tail passed the inlet sensor");
       }
+      heldCarriageTick(s);
       if (refillTick(s, now)) break;
       if (!jogging && !motor::isMoving() && bufferEmpty(s) && !btestOwnsMotor()) {
         uint32_t blocked_ms = topUpBlockRemainingMs(now);
@@ -2060,8 +2112,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         } else if (printerHeaterOff()) {
           if (buffer_blocked != TopUpHold::kHeaterOff) {
             buffer_blocked = TopUpHold::kHeaterOff;
-            message = String(pn()) + " heater off";
-            logf("buffer: not topping up, %s heater is off (print ending, or idle)", pn());
+            message = String(pn()) + " heater off";  // heldCarriageTick logs it
           }
         } else if (printerCanAnchor()) {
           buffer_blocked = TopUpHold::kNone;
