@@ -123,7 +123,7 @@ constexpr uint32_t kFreeTopUpBlockMs = 60000; // after an unload releases the ge
 constexpr uint32_t kK1BootWaitMs = 8000;      // hold the first top-up until the printer answers
 constexpr float kUnloadExtraMm = 15.0f;   // keep pulling after the tip passes IN2
 constexpr float kUnloadMarginMm = 300.0f;   // only used until the real length has been measured
-constexpr float kUnloadLearnMargin = 1.3f;  // allowance on top of the measured unload length
+constexpr float kUnloadLearnExtraMm = 20.0f;  // allowance on top of the measured unload length
 constexpr float kPtestMinExtrudeMm = 20.0f;  // the printer consumes at least this much per level
 constexpr int kPtestFeedrate = 300;        // mm/min for the test extrusion
 constexpr uint32_t kPtestFillMs = 20000;   // waiting for the buffer to fill before a level starts
@@ -188,6 +188,8 @@ uint32_t unload_click_ms = 0;
 bool back_convert_pending = false;
 bool up_click_pending = false;   // READY: waiting to see whether a second UP click follows
 uint32_t up_click_ms = 0;
+bool up_stop_press = false;      // this UP press stopped a manual move; its release counts as a click
+bool up_click_stopped = false;   // first click only stopped a move: never turn it into a delayed load
 uint32_t last_active_ms = 0;     // last time the buffer was feeding
 uint32_t last_wake_ms = 0;       // last key press or web action
 uint32_t last_motion_ms = 0;
@@ -268,6 +270,7 @@ State follow_return = State::kReady;
 float follow_start_pos = 0;
 float follow_recent_mm = 0;   // followed in the last few retractions, to spot an unload
 uint32_t follow_last_ms = 0;
+bool follow_blocked_by_key = false;  // a physical stop waits for the current printer move to end
 // Why READY is holding top-ups back, so each reason is logged once.
 enum class TopUpHold : uint8_t { kNone, kAnchor, kHeaterOff };
 TopUpHold buffer_blocked = TopUpHold::kNone;
@@ -548,6 +551,13 @@ bool locked() {
   return moonraker::snapshot().print_state == moonraker::PrintState::kPrinting;
 }
 
+// Tests and the settings menu must not take hardware away from an active print,
+// even when the optional manual-move lock is off or the last reading is stale.
+bool printerHasActivePrint() {
+  auto state = moonraker::snapshot().print_state;
+  return state == moonraker::PrintState::kPrinting || state == moonraker::PrintState::kPaused;
+}
+
 // Why the keys are locked: the OLED text, and the reason for the log.
 String lockText() {
   return String("LOCKED: ") + pn() + (moonraker::snapshot().fresh ? " printing" : " offline");
@@ -666,7 +676,7 @@ float pathMm() {
 float fullUnloadLimit() {
   if (cfg().lock_move_distance) return cfg().unload_mm;
   if (cfg().unload_measured_mm) {
-    return cfg().unload_measured_mm * kUnloadLearnMargin + kUnloadExtraMm;
+    return cfg().unload_measured_mm + kUnloadLearnExtraMm;
   }
   return cfg().preload_mm + pathMm() + kUnloadMarginMm;
 }
@@ -902,7 +912,7 @@ void fullTestFinish(bool ok, const char *code, const String &detail) {
 
 void ptestEnd(const String &msg, bool ok, const char *code) {
   bool was_active = ptestActive();
-  if (ptest_phase != PtestPhase::kOff) {
+  if (was_active && !printerHasActivePrint()) {
     if (moonraker::snapshot().nozzle_target != ptest_old_target) {
       char script[32];
       snprintf(script, sizeof(script), "M104 S%d", (int)ptest_old_target);
@@ -1055,8 +1065,8 @@ const char *testRefusal() {
   if (!s.in2) return "no_filament";
   if (motor::isMoving() || !(state == State::kReady || state == State::kStaged)) return "busy";
   moonraker::Snapshot k1 = moonraker::snapshot();
-  if (!k1.fresh) return "k1_link";
-  if (moonraker::isPrinting()) return "k1_printing";
+  if (!cfg().k1_enabled || !k1.fresh) return "k1_link";
+  if (printerHasActivePrint()) return "k1_printing";
   // Every test needs the K1 extruder to hold the far end of the filament.
   if (k1.ext_sensor_present && !k1.ext_sensor) return "k1_empty";
   return nullptr;
@@ -1067,7 +1077,7 @@ String refusalText(const char *code) {  // short enough for the OLED
   if (!strcmp(code, "no_filament")) return "load filament first";
   if (!strcmp(code, "busy")) return "wait for READY";
   if (!strcmp(code, "k1_link")) return String(pn()) + " not connected";
-  if (!strcmp(code, "k1_printing")) return String(pn()) + " is printing";
+  if (!strcmp(code, "k1_printing")) return String(pn()) + " has an active print";
   if (!strcmp(code, "k1_empty")) return String(pn()) + " extruder empty";
   return code;
 }
@@ -1111,7 +1121,9 @@ void btestEnd(const String &msg, bool ok, const char *code) {
   btest_phase = BtestPhase::kOff;
   btest_msg = "";
   applyPressure();
-  moonraker::sendGcode("SET_STEPPER_ENABLE STEPPER=extruder ENABLE=0");
+  if (!printerHasActivePrint()) {
+    moonraker::sendGcode("SET_STEPPER_ENABLE STEPPER=extruder ENABLE=0");
+  }
   message = msg;
   logf("buffer test: %s", msg.c_str());
   if (ok) io::beep(3);
@@ -1234,8 +1246,8 @@ void btestTick(uint32_t now) {
     btestEnd("stopped: no filament", false, "no_filament");
     return;
   }
-  if (moonraker::isPrinting()) {
-    btestEnd(String("stopped: ") + pn() + " started printing", false, "k1_printing");
+  if (printerHasActivePrint()) {
+    btestEnd(String("stopped: ") + pn() + " has an active print", false, "k1_printing");
     return;
   }
   if (state == State::kError || state == State::kNoDriver) {
@@ -1355,8 +1367,8 @@ void ptestTick(uint32_t now) {
     ptestEnd("stopped: no filament", false, "no_filament");
     return;
   }
-  if (moonraker::isPrinting()) {
-    ptestEnd(String("stopped: ") + pn() + " started printing", false, "k1_printing");
+  if (printerHasActivePrint()) {
+    ptestEnd(String("stopped: ") + pn() + " has an active print", false, "k1_printing");
     return;
   }
   if (state == State::kError || state == State::kNoDriver) {
@@ -1668,7 +1680,7 @@ void updateUnloading(const io::Sensors &s) {
         if (measured != cfg().unload_measured_mm) {
           logf("unload: the tip cleared the gear after %.0f mm, using that as the yardstick "
                "(limit %.0f mm)",
-               moved, measured * kUnloadLearnMargin + kUnloadExtraMm);
+               moved, measured + kUnloadLearnExtraMm);
           settings::get().unload_measured_mm = measured;
           settings::save();
         }
@@ -1680,7 +1692,9 @@ void updateUnloading(const io::Sensors &s) {
     io::beep(2);
     return;
   }
-  if (moved >= unload_limit_mm) {
+  // The limit is for the tip reaching the gear. Once it has, a full unload always finishes the
+  // last kUnloadExtraMm, even when the tip cleared the gear just short of the limit.
+  if (moved >= unload_limit_mm && !(unload_full && unload_past_gear)) {
     motor::stop();
     if (s.in2 && unload_full) {
       // Asked to unload completely and the tip never reached the gear: it is jammed, usually the
@@ -1712,6 +1726,11 @@ void enterFree(const String &why, bool from_k1, bool from_retract = false);
 
 bool maybeStartFollowing() {
   moonraker::Snapshot k1 = moonraker::snapshot();
+  if (follow_blocked_by_key) {
+    if (!k1.fresh || k1.age_ms > kFollowMaxAgeMs ||
+        fabsf(k1.extruder_velocity) > kFollowStopMmS) return false;
+    follow_blocked_by_key = false;
+  }
   bool explicit_follow = k1.pbf_mode == 2;
   if ((!cfg().retract_sync && !explicit_follow) || motor::isMoving() || jogging || testActive()) {
     return false;
@@ -1874,8 +1893,9 @@ void freeTick(uint32_t now) {
   }
   // Stale data must not keep the gear open: a feeder that is not holding is a feeder that does
   // nothing, because the printer then pulls filament straight off the spool through the gear.
-  bool asked = cfg().free_on_unload && k1.fresh && (k1.pbf_macro || k1.pbf_display) &&
-               k1.pbf_mode == 1 && !printing;
+  bool signal_known = k1.fresh && k1.klippy_ready && (k1.pbf_macro || k1.pbf_display);
+  bool signal_cleared = signal_known && k1.pbf_mode != 1;
+  bool asked = cfg().free_on_unload && signal_known && k1.pbf_mode == 1 && !printing;
 
   if (state == State::kFree) {
     // A marker turning up mid-way takes over: it knows exactly when the unload ends.
@@ -1886,11 +1906,11 @@ void freeTick(uint32_t now) {
     if (k1.fresh && k1.extruder_velocity < -kFollowStopMmS) free_quiet_ms = now;
     String lost = String("lost the ") + pn() + " link";
     if (printing) {
-      exitFree(String(pn()) + " started printing", false);
+      exitFree(String(pn()) + " started printing", !signal_cleared);
     } else if (free_from_k1 && !asked) {
-      exitFree(k1.fresh ? String(pn()) + " stopped asking" : lost, false);
+      exitFree(signal_known ? String(pn()) + " stopped asking" : lost, !signal_cleared);
     } else if (!k1.fresh && (free_from_k1 || free_from_retract)) {
-      exitFree(lost, false);
+      exitFree(lost, true);
     } else if (free_from_retract && now - free_quiet_ms > kFreeQuietMs) {
       exitFree(String(pn()) + " stopped pulling", false);
     } else if ((int32_t)(now - free_until_ms) > 0) {
@@ -1900,7 +1920,8 @@ void freeTick(uint32_t now) {
     }
     return;
   }
-  if (!asked) free_blocked = false;  // the printer stopped asking: arm it again
+  // No reading (boot, disconnect, unavailable objects) is not a cleared marker.
+  if (signal_cleared) free_blocked = false;
   if (asked && !free_blocked && canFree()) enterFree(String(pn()) + " unloading: gear released", true);
 }
 
@@ -1959,6 +1980,8 @@ int32_t standbyInS(uint32_t now) {
 }
 
 void runState(const io::Sensors &s, uint32_t now) {
+  // Let a stopped manual move's UP click finish before restarting automatic feeding.
+  bool waiting_for_up = up_stop_press || (up_click_pending && up_click_stopped);
   bool in1_rise = s.in1 && !prev.in1;
   bool in1_fall = !s.in1 && prev.in1;
   bool in2_rise = s.in2 && !prev.in2;
@@ -2010,7 +2033,7 @@ void runState(const io::Sensors &s, uint32_t now) {
         // straight through the gear for the whole print.
         logf("%s started printing: leaving STAGED so the buffer works", pn());
         enter(State::kReady, String(pn()) + " printing: buffer on");
-      } else {
+      } else if (!waiting_for_up) {
         maybeStartFollowing();
       }
       break;
@@ -2101,6 +2124,8 @@ void runState(const io::Sensors &s, uint32_t now) {
         message = "spool empty soon";
         logf("tail passed the inlet sensor");
       }
+      // Keep sensor transitions live, and let a print take over even with key locking off.
+      if (waiting_for_up && moonraker::snapshot().print_state != moonraker::PrintState::kPrinting) break;
       heldCarriageTick(s);
       if (refillTick(s, now)) break;
       if (!jogging && !motor::isMoving() && bufferEmpty(s) && !btestOwnsMotor()) {
@@ -2174,7 +2199,8 @@ bool canJog() {
 //   BACK click: retract by distance (unload_mm)      hold: retract while held
 //        double click: unload until the tip leaves the gear
 //        click, then hold within 2 s: the distance retract turns into a hold retract
-//   Any key while something is moving stops it immediately (the rest of that press is ignored).
+//   Any key during a manual move stops it immediately. A short UP stop counts toward double UP
+//   (back to STAGED); a lone stop press cannot start a delayed load.
 //   Any key while an alarm is shown clears it.
 
 // A user-started or automatic sequence that a key press should stop (buffer feeding excluded).
@@ -2187,6 +2213,7 @@ bool actionRunning() {
 void stopAction(const char *why) {
   stopTests(why);
   const io::Sensors &s = io::sensors();
+  if (web_hold) web_hold_refused = true;  // keep-alives from the same press cannot restart it
   web_hold = false;
   jogging = false;
   unload_from_click = false;
@@ -2207,6 +2234,11 @@ void stopAction(const char *why) {
     case State::kFeeding:  // a test was stopped during one of its top-ups
       motor::stop();
       enter(State::kReady, why);
+      break;
+    case State::kFollowing:
+      motor::stop();
+      follow_blocked_by_key = true;
+      enter(follow_return, why);
       break;
     default:
       motor::stop();  // a jog in an idle state
@@ -2269,6 +2301,19 @@ void backDoubleClick() {
   startUnload(fullUnloadLimit(), true);
 }
 
+void stageByUpDoubleClick() {
+  motor::halt();
+  jogging = false;
+  if (web_hold) web_hold_refused = true;
+  web_hold = false;
+  up_click_pending = up_stop_press = up_click_stopped = false;
+  back_click_pending = back_convert_pending = unload_from_click = false;
+  swallow_up = false;
+  follow_blocked_by_key = true;
+  enter(State::kStaged, "buffer paused (tube swap OK)");
+  logf("UP double click: back to STAGED");
+}
+
 void handleKey(io::KeyEvent e) {
   using io::KeyEvent;
   bool is_up = e == KeyEvent::kUpDown || e == KeyEvent::kUpShort || e == KeyEvent::kUpHoldStart ||
@@ -2276,6 +2321,7 @@ void handleKey(io::KeyEvent e) {
   bool &swallow = is_up ? swallow_up : swallow_back;
 
   if (state == State::kStuck || state == State::kError) {
+    up_click_pending = up_stop_press = up_click_stopped = false;
     if (e == KeyEvent::kUpDown || e == KeyEvent::kBackDown) {
       io::alarm(false);
       settle();
@@ -2285,6 +2331,7 @@ void handleKey(io::KeyEvent e) {
   }
 
   if (state == State::kFree) {
+    up_click_pending = up_stop_press = up_click_stopped = false;
     if (e == KeyEvent::kUpDown || e == KeyEvent::kBackDown) {
       exitFree("key pressed", true);
       swallow = true;
@@ -2294,6 +2341,7 @@ void handleKey(io::KeyEvent e) {
 
   // The press only wakes it: the screen was dim, so the user cannot know what it would have done.
   if (state == State::kStandby) {
+    up_click_pending = up_stop_press = up_click_stopped = false;
     if (e == KeyEvent::kUpDown || e == KeyEvent::kBackDown) {
       exitStandby("key pressed");
       swallow = true;
@@ -2302,6 +2350,7 @@ void handleKey(io::KeyEvent e) {
   }
 
   if (locked()) {
+    up_stop_press = up_click_stopped = false;
     if (e == KeyEvent::kUpDown || e == KeyEvent::kBackDown) {
       if (actionRunning()) {
         stopAction("stopped by key");
@@ -2318,6 +2367,25 @@ void handleKey(io::KeyEvent e) {
     return;
   }
 
+  // A short UP press that stopped a manual move is still the first half of a
+  // double click. Recognize the second release before the swallow/state checks:
+  // an unload may already have returned to STAGED, where a single UP would load.
+  if (e == KeyEvent::kUpShort && (!swallow_up || up_stop_press) && !testActive() &&
+      io::sensors().in2 && (filamentAtPrinter() || state == State::kStaged ||
+                           state == State::kLoading || state == State::kUnloading ||
+                           state == State::kFollowing)) {
+    if (up_click_pending && millis() - up_click_ms <= kDoubleClickMs) {
+      stageByUpDoubleClick();
+      return;
+    }
+    if (up_stop_press) {
+      up_stop_press = swallow_up = false;
+      up_click_pending = up_click_stopped = true;
+      up_click_ms = millis();
+      return;
+    }
+  }
+
   switch (e) {
     case KeyEvent::kUpDown:
     case KeyEvent::kBackDown:
@@ -2326,7 +2394,11 @@ void handleKey(io::KeyEvent e) {
         back_convert_pending = true;  // wait: short press = stop, hold = switch to hold retract
         return;
       }
-      if (actionRunning()) {
+      if (actionRunning() || jogging || web_hold) {
+        up_stop_press = is_up && !testActive() &&
+                        (state == State::kLoading || state == State::kUnloading ||
+                         state == State::kFollowing || jogging || web_hold ||
+                         (motor::isMoving() && (state == State::kReady || state == State::kStaged)));
         stopAction("stopped by key");
         swallow = true;
       }
@@ -2336,6 +2408,7 @@ void handleKey(io::KeyEvent e) {
     case KeyEvent::kBackShort:
       if (swallow) {
         swallow = false;
+        if (is_up) up_stop_press = false;
         return;
       }
       if (!is_up && back_convert_pending) {
@@ -2344,16 +2417,9 @@ void handleKey(io::KeyEvent e) {
         return;
       }
       if (is_up && filamentAtPrinter()) {
-        if (up_click_pending && millis() - up_click_ms <= kDoubleClickMs) {
-          up_click_pending = false;
-          motor::halt();
-          jogging = false;
-          enter(State::kStaged, "buffer paused (tube swap OK)");
-          logf("UP double click: back to STAGED");
-        } else {
-          up_click_pending = true;  // a lone click is ignored in READY (decided in serviceClicks)
-          up_click_ms = millis();
-        }
+        up_click_pending = true;  // a lone click is ignored in READY (decided in serviceClicks)
+        up_click_stopped = false;
+        up_click_ms = millis();
       } else if (is_up) {
         upClick();
       } else if (back_click_pending && millis() - back_click_ms <= kDoubleClickMs) {
@@ -2367,6 +2433,7 @@ void handleKey(io::KeyEvent e) {
 
     case KeyEvent::kUpHoldStart:
     case KeyEvent::kBackHoldStart:
+      if (is_up) up_click_pending = up_click_stopped = false;
       if (swallow) return;
       if (!is_up && back_convert_pending) {
         back_convert_pending = false;
@@ -2383,6 +2450,7 @@ void handleKey(io::KeyEvent e) {
     case KeyEvent::kBackHoldEnd:
       if (swallow) {
         swallow = false;
+        if (is_up) up_stop_press = false;
         return;
       }
       if (jogging && !web_hold) {
@@ -2398,9 +2466,20 @@ void handleKey(io::KeyEvent e) {
 }
 
 void serviceClicks() {
+  if (locked()) {
+    up_click_pending = up_stop_press = up_click_stopped = back_click_pending = false;
+    return;
+  }
+  // Pressing both keys suppresses individual release events in io.cpp.
+  // Do not leave automatic feeding waiting forever for a release that will never arrive.
+  if (up_stop_press && !io::keyUpDown()) {
+    up_stop_press = swallow_up = false;
+  }
   if (up_click_pending && millis() - up_click_ms > kDoubleClickMs && !io::keyUpDown()) {
     up_click_pending = false;
-    upClick();  // logs that a single click is ignored while the filament is at the printer
+    bool stopped = up_click_stopped;
+    up_click_stopped = false;
+    if (!stopped) upClick();  // a stop click must not start another load when its window expires
   }
   if (back_click_pending && millis() - back_click_ms > kDoubleClickMs && !io::keyBackDown()) {
     back_click_pending = false;
@@ -2409,6 +2488,13 @@ void serviceClicks() {
 }
 
 void handleKeys() {
+  bool print_active = cfg().k1_enabled && printerHasActivePrint();
+  if (print_active && ui::menuActive()) {
+    ui::menuClose();
+    applyPressure();
+    up_click_pending = back_click_pending = false;
+    logf("settings menu closed: %s has an active print", pn());
+  }
   io::KeyEvent e;
   while ((e = io::nextKey()) != io::KeyEvent::kNone) {
     last_wake_ms = millis();
@@ -2427,6 +2513,11 @@ void handleKeys() {
       continue;
     }
     if (e == io::KeyEvent::kBothLong) {
+      if (print_active) {
+        message = String(pn()) + " has an active print";
+        logf("settings menu refused: %s", message.c_str());
+        continue;
+      }
       if (!motor::isMoving() && !testActive()) {
         jogging = false;
         ui::menuOpen();

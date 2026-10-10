@@ -204,7 +204,8 @@ const NAMES={"NO POWER":"馬達沒有電源（24V？）","EMPTY":"無料","INSER
 "FOLLOW":"同步 %P 進退料中","FREE":"齒輪放開（印表機自己拉）"};
 const K1NAMES={"printing":"列印中","paused":"暫停","standby":"閒置","complete":"完成","cancelled":"已取消","error":"錯誤","off":"未啟用","not connected":"未連線","unauthorized":"被拒絕（要 API key）"};
 async function get(p){const r=await fetch(p,{cache:'no-store'});return r.json()}
-async function post(p,b){const r=await fetch(p,{method:'POST',body:new URLSearchParams(b)});return r.json()}
+async function post(p,b){const r=await fetch(p,{method:'POST',body:new URLSearchParams(b)});const data=await r.json();
+  if(!r.ok)throw new Error((data.error||'請求失敗')+(data.field?'：'+data.field:''));return data}
 const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
 function pill(id,on,txt){const e=$(id);e.classList.toggle('on',!!on);if(txt)e.textContent=txt}
 async function refresh(){
@@ -241,7 +242,7 @@ async function refresh(){
 }
 const TKIND={full:'綜合測試',buffer:'緩衝量測試',pressure:'壓力測試'};
 const TCODE={cancelled:'已中止',no_power:'馬達沒有 24V 電源',no_filament:'喂竹器沒有耗材：先插料並送到 %P',
-busy:'喂竹器正在動作，等它回到待命再按',k1_link:'連不到 %P：檢查設定裡的位址和連接埠',k1_printing:'%P 列印中不能測試',
+busy:'喂竹器正在動作，等它回到待命再按',k1_link:'連不到 %P：檢查設定裡的位址和連接埠',k1_printing:'%P 列印中或暫停中不能測試',
 k1_empty:'%P 的耗材感測器沒有料：先把耗材送到 %P 擠出機',stopped:'測試被中斷（錯誤或馬達斷電）',
 drain_failed:'無法把緩衝退回原位：檢查活動件是否卡住',
 never_left_home:'送了 30mm 活動件都沒被撐開：耗材可能沒被 %P 擠出機夾住，或管子沒接好',
@@ -344,11 +345,11 @@ async function distAction(cmd,input,label){
 }
 $('#dist_feed').onclick=()=>distAction('feed_dist','#load_mm','距離進料');
 $('#dist_back').onclick=()=>distAction('unload_dist','#unload_mm','距離退料');
-$('#cfg').pressure.onchange=()=>post('/api/settings',{pressure:$('#cfg').pressure.value}).then(()=>{actMsg('壓力級別已套用 L'+$('#cfg').pressure.value);cfgMsg('壓力級別已套用');refresh()});
+$('#cfg').pressure.onchange=()=>post('/api/settings',{pressure:$('#cfg').pressure.value}).then(()=>{actMsg('壓力級別已套用 L'+$('#cfg').pressure.value);cfgMsg('壓力級別已套用');refresh()}).catch(e=>cfgMsg('儲存失敗：'+e.message));
 $('#cfg').move_level.onchange=()=>post('/api/settings',{move_level:$('#cfg').move_level.value})
-  .then(()=>cfgMsg('進退料電流級別已套用'));
+  .then(()=>cfgMsg('進退料電流級別已套用')).catch(e=>cfgMsg('儲存失敗：'+e.message));
 $('#keyclr').onclick=async()=>{if(!confirm('清除 API key？'))return;
-  await post('/api/settings',{api_key:''});cfgMsg('API key 已清除');loadCfg()};
+  try{await post('/api/settings',{api_key:''});cfgMsg('API key 已清除');loadCfg()}catch(e){cfgMsg('儲存失敗：'+e.message)}};
 function cfgMsg(t){$('#cfgmsg').textContent=t;setTimeout(()=>$('#cfgmsg').textContent='',2000)}
 function setLog(open){
   const p=$('#log'),b=$('#logbtn');p.hidden=!open;b.textContent=open?'摺疊記錄 ▴':'展開記錄 ▾';
@@ -357,13 +358,13 @@ function setLog(open){
 }
 $('#logbtn').onclick=()=>setLog($('#log').hidden);
 {let open=false;try{open=localStorage.getItem('pbf_log_open')==='1'}catch(e){}setLog(open)}
-$('#load_mm').onchange=()=>post('/api/settings',{load_mm:$('#load_mm').value}).then(()=>actMsg('進料距離已儲存'));
-$('#unload_mm').onchange=()=>post('/api/settings',{unload_mm:$('#unload_mm').value}).then(()=>actMsg('退料距離已儲存'));
+$('#load_mm').onchange=()=>post('/api/settings',{load_mm:$('#load_mm').value}).then(()=>actMsg('進料距離已儲存')).catch(e=>actMsg('儲存失敗：'+e.message));
+$('#unload_mm').onchange=()=>post('/api/settings',{unload_mm:$('#unload_mm').value}).then(()=>actMsg('退料距離已儲存')).catch(e=>actMsg('儲存失敗：'+e.message));
 $('#cfg').onsubmit=async e=>{
   e.preventDefault();const b={};
   for(const el of e.target.elements){if(!el.name)continue;b[el.name]=el.type==='checkbox'?(el.checked?1:0):el.value}
   if(!b.api_key)delete b.api_key;  // empty = keep the stored key
-  await post('/api/settings',b);cfgMsg('已儲存');loadCfg();refresh();
+  try{await post('/api/settings',b);cfgMsg('已儲存');loadCfg();refresh()}catch(e){cfgMsg('儲存失敗：'+e.message)}
 };
 $('#wifi').onsubmit=async e=>{
   e.preventDefault();if(!confirm('儲存 WiFi 設定並重新開機？'))return;

@@ -42,7 +42,7 @@ Traditional Chinese.
 
 ## Status
 
-Version 0.11.2. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
+Version 0.11.5. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
 but have not been tested yet. Firmware binaries will be published under **Releases** once
 the current version has been verified on the hardware.
 
@@ -78,6 +78,24 @@ Output files: `.pio/build/pbf_custom/` (`bootloader.bin`, `partitions.bin`, `fir
 `boot_app0.bin` comes with the Arduino-ESP32 framework package. Upload over USB with
 `pio run -e pbf_custom -t upload`. A feeder that already runs this firmware can also be updated
 from its web page.
+
+Host regression checks (Python 3 and a C++17 `g++`, or set `CXX` to your compiler):
+
+```bash
+python tests/run_regressions.py
+```
+
+These exercise the production control functions with simulated printer and hardware inputs;
+they do not connect to a printer. Version 0.11.5 caps a full unload (double BACK) at the
+measured unload length + 20 mm instead of x1.3, and always finishes the last 15 mm once the
+tip has cleared the gear. It builds and passes 170 host checks; OTA startup and preserved settings have been verified.
+Version 0.11.4 lets double UP return to STAGED during manual feed, retract, and printer-follow
+moves: the first tap stops the move and also counts toward the double click. A lone stop tap
+cannot start a delayed load. Following stays paused until the current printer move ends. OTA
+startup and preserved settings have been verified. Physical button verification is still
+pending.
+Version 0.11.3 fixes test cleanup during a print, menu access during a print, stale FREE
+markers, and numeric setting validation.
 
 ## License
 

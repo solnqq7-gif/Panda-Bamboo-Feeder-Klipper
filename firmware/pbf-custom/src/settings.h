@@ -96,7 +96,10 @@ Link link();  // safe to call from any task
 void load();
 void save();
 void resetToDefaults();
-// Sets a value by name, e.g. set("load_mm", "650"). Returns false for unknown names.
+// Check a proposed value without changing settings (used before applying a web batch).
+bool validate(const String &name, const String &value);
+// Sets a value by name, e.g. set("load_mm", "650"). False = unknown name or invalid number;
+// invalid input leaves the existing setting unchanged.
 bool set(const String &name, const String &value, bool persist = true);
 void print(Print &out);
 void setWifi(const String &ssid, const String &pass);

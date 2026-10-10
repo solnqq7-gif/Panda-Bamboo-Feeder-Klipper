@@ -23,3 +23,5 @@
 !/firmware/pbf-custom/platformio.ini
 !/firmware/pbf-custom/partitions_stock.csv
 !/firmware/pbf-custom/strip_paths.py
+!/firmware/pbf-custom/tests/
+/firmware/pbf-custom/tests/__pycache__/

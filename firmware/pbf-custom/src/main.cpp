@@ -49,7 +49,7 @@ void handleCommand(String cmd) {
       motor::setCurrentMa(hw::pressureLevelToMa(settings::get().pressure_level), settings::get().hold_ma);
       settings::print(Serial);
     } else {
-      Serial.println("unknown setting");
+      Serial.println("unknown setting or invalid value");
     }
   } else if (word == "defaults") {
     settings::resetToDefaults();

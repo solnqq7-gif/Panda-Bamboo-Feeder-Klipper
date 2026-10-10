@@ -1,6 +1,9 @@
 #include "settings.h"
 
 #include <Preferences.h>
+#include <errno.h>
+#include <math.h>
+#include <stdlib.h>
 
 #include "config.h"
 #include "logbuf.h"
@@ -32,6 +35,7 @@ T clampValue(T v, T lo, T hi) {
 
 void sanitize(Settings &s) {
   s.pressure_level = clampValue<uint8_t>(s.pressure_level, hw::kMinPressureLevel, hw::kMaxPressureLevel);
+  if (!isfinite(s.steps_per_mm)) s.steps_per_mm = Settings().steps_per_mm;
   s.steps_per_mm = clampValue(s.steps_per_mm, 50.0f, 1000.0f);
   s.preload_mm = clampValue<uint16_t>(s.preload_mm, 0, 300);
   s.load_mm = clampValue<uint16_t>(s.load_mm, 1, kMaxMoveMm);
@@ -283,57 +287,97 @@ void resetToDefaults() {
   save();
 }
 
-bool set(const String &name, const String &value, bool persist) {
-  Guard g;
-  Settings &s = current;
-  long n = value.toInt();
+namespace {
+
+// Parse and check before narrowing to uint8_t/uint16_t. Invalid input leaves the
+// old setting intact, including when a web request batches changes without saving.
+template <typename T>
+bool assignInteger(T &field, const String &value, long lo, long hi, bool allow_zero = false) {
+  String input = value;
+  input.trim();
+  char *end;
+  errno = 0;
+  long n = strtol(input.c_str(), &end, 10);
+  if (input.isEmpty() || *end || errno == ERANGE ||
+      (!(allow_zero && n == 0) && (n < lo || n > hi))) return false;
+  field = static_cast<T>(n);
+  return true;
+}
+
+bool assignSteps(float &field, const String &value) {
+  String input = value;
+  input.trim();
+  char *end;
+  errno = 0;
+  float n = strtof(input.c_str(), &end);
+  if (input.isEmpty() || *end || errno == ERANGE || !isfinite(n) || n < 50 || n > 1000) return false;
+  field = n;
+  return true;
+}
+
+bool applyValue(Settings &s, const String &name, const String &value) {
+  bool valid = true;
   bool on = value == "1" || value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true");
-  if (name == "pressure") s.pressure_level = n;
+  if (name == "pressure") valid = assignInteger(s.pressure_level, value, 1, 10);
   else if (name == "buzzer") s.buzzer = on;
-  else if (name == "steps_mm") s.steps_per_mm = value.toFloat();
-  else if (name == "preload_mm") s.preload_mm = n;
-  else if (name == "load_mm") s.load_mm = n;
-  else if (name == "unload_mm") s.unload_mm = n;
+  else if (name == "steps_mm") valid = assignSteps(s.steps_per_mm, value);
+  else if (name == "preload_mm") valid = assignInteger(s.preload_mm, value, 0, 300);
+  else if (name == "load_mm") valid = assignInteger(s.load_mm, value, 1, kMaxMoveMm);
+  else if (name == "unload_mm") valid = assignInteger(s.unload_mm, value, 1, kMaxMoveMm);
   else if (name == "lock_move_distance") {
     s.lock_move_distance = on;
     if (on) s.unload_measured_mm = 0;  // discard a possibly bad learned limit from a jam
   }
-  else if (name == "unload_measured_mm") s.unload_measured_mm = n;
-  else if (name == "stuck_mm") s.stuck_mm = n;
-  else if (name == "overfeed_mm") s.overfeed_mm = n;
-  else if (name == "ptest_temp") s.ptest_temp = n;
+  else if (name == "unload_measured_mm") valid = assignInteger(s.unload_measured_mm, value, 0, kMaxMoveMm);
+  else if (name == "stuck_mm") valid = assignInteger(s.stuck_mm, value, 30, 500);
+  else if (name == "overfeed_mm") valid = assignInteger(s.overfeed_mm, value, 0, 25);
+  else if (name == "ptest_temp") valid = assignInteger(s.ptest_temp, value, 150, 300);
   else if (name == "idle_release") s.idle_release = on;
   else if (name == "standby") s.standby = on;
-  else if (name == "standby_min") s.standby_min = n;
+  else if (name == "standby_min") valid = assignInteger(s.standby_min, value, 1, 120);
   else if (name == "full_when_displaced") s.full_when_displaced = on;
-  else if (name == "hold_ma") s.hold_ma = n;
-  else if (name == "move_level") s.move_level = n;
+  else if (name == "hold_ma") valid = assignInteger(s.hold_ma, value, 50, 700);
+  else if (name == "move_level") valid = assignInteger(s.move_level, value, 0, 10);
   else if (name == "invert_dir") s.invert_dir = on;
-  else if (name == "load_speed") s.load_speed = n;
-  else if (name == "buffer_speed") s.buffer_speed = n;
-  else if (name == "unload_speed") s.unload_speed = n;
-  else if (name == "brightness") s.brightness = n;
-  else if (name == "brightness_ready") s.brightness_ready = n;
-  else if (name == "brightness_active") s.brightness_active = n;
+  else if (name == "load_speed") valid = assignInteger(s.load_speed, value, 5, 60);
+  else if (name == "buffer_speed") valid = assignInteger(s.buffer_speed, value, 5, 60);
+  else if (name == "unload_speed") valid = assignInteger(s.unload_speed, value, 5, 60);
+  else if (name == "brightness") valid = assignInteger(s.brightness, value, 5, 100);
+  else if (name == "brightness_ready") valid = assignInteger(s.brightness_ready, value, 0, 100);
+  else if (name == "brightness_active") valid = assignInteger(s.brightness_active, value, 5, 100);
   else if (name == "k1_enabled") s.k1_enabled = on;
   else if (name == "printer_name") s.printer_name = value;
   else if (name == "printer_host") s.printer_host = value;
   else if (name == "sensor") s.sensor = value;
   else if (name == "api_key") s.api_key = value;
-  else if (name == "printer_port") s.printer_port = n;
+  else if (name == "printer_port") valid = assignInteger(s.printer_port, value, 1, 65535);
   else if (name == "lock_printing") s.lock_printing = on;
   else if (name == "pause_on_stuck") s.pause_on_stuck = on;
-  else if (name == "nofeed_mm") s.nofeed_mm = n;
+  else if (name == "nofeed_mm") valid = assignInteger(s.nofeed_mm, value, 30, 2000, true);
   else if (name == "stop_at_extruder") s.stop_at_extruder = on;
-  else if (name == "extruder_extra_mm") s.extruder_extra_mm = n;
-  else if (name == "path_margin_mm") s.path_margin_mm = n;
+  else if (name == "extruder_extra_mm") valid = assignInteger(s.extruder_extra_mm, value, 0, kMaxExtraMm);
+  else if (name == "path_margin_mm") valid = assignInteger(s.path_margin_mm, value, 0, 250);
   else if (name == "retract_sync") s.retract_sync = on;
   else if (name == "free_on_unload") s.free_on_unload = on;
-  else if (name == "free_timeout_s") s.free_timeout_s = n;
+  else if (name == "free_timeout_s") valid = assignInteger(s.free_timeout_s, value, 5, 600);
   else if (name == "free_on_retract") s.free_on_retract = on;
-  else if (name == "free_retract_mm") s.free_retract_mm = n;
+  else if (name == "free_retract_mm") valid = assignInteger(s.free_retract_mm, value, 10, 200);
   else if (name == "notify_runout") s.notify_runout = on;
   else return false;
+  return valid;
+}
+
+}  // namespace
+
+bool validate(const String &name, const String &value) {
+  Guard g;
+  Settings candidate = current;
+  return applyValue(candidate, name, value);
+}
+
+bool set(const String &name, const String &value, bool persist) {
+  Guard g;
+  if (!applyValue(current, name, value)) return false;
   if (persist) save();
   return true;
 }

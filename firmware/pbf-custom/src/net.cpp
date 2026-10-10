@@ -108,6 +108,17 @@ void handleSettingsGet() {
 }
 
 void handleSettingsPost() {
+  // Validate the entire form first so a rejected field cannot leave a partial update.
+  for (int i = 0; i < server.args(); i++) {
+    if (server.argName(i) == "plain") continue;
+    if (!settings::validate(server.argName(i), server.arg(i))) {
+      String error = "{\"error\":\"設定名稱或數值無效\",\"field\":";
+      logbuf::appendJsonString(error, server.argName(i).c_str());
+      error += '}';
+      server.send(400, "application/json", error);
+      return;
+    }
+  }
   for (int i = 0; i < server.args(); i++) {
     if (server.argName(i) == "plain") continue;
     settings::set(server.argName(i), server.arg(i), false);

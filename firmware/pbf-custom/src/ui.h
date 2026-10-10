@@ -25,6 +25,7 @@ void drawMain(const MainScreen &screen);
 void drawFeedArrow(float feed);
 
 void menuOpen();
+void menuClose();  // saves pending settings; also used when a print starts
 bool menuActive();
 MenuAction menuKey(io::KeyEvent e);  // settings are saved when the menu closes
 void drawMenu();

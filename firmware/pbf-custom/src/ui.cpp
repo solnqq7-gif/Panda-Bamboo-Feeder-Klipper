@@ -161,12 +161,17 @@ void menuOpen() {
 
 bool menuActive() { return menu_active; }
 
+void menuClose() {
+  if (!menu_active) return;
+  menu_active = false;
+  settings::save();
+}
+
 MenuAction menuKey(io::KeyEvent e) {
   if (!menu_active) return MenuAction::kNone;
   Settings &s = settings::get();
   if (e == io::KeyEvent::kBothLong) {
-    menu_active = false;
-    settings::save();
+    menuClose();
     return MenuAction::kExit;
   }
   if (e == io::KeyEvent::kUpShort) {
@@ -182,8 +187,7 @@ MenuAction menuKey(io::KeyEvent e) {
     case kPressureTest:
     case kBufferTest:
     case kFullTest:
-      menu_active = false;
-      settings::save();
+      menuClose();
       return cursor == kPressureTest ? MenuAction::kPressureTest
              : cursor == kBufferTest ? MenuAction::kBufferTest
                                      : MenuAction::kFullTest;
@@ -198,8 +202,7 @@ MenuAction menuKey(io::KeyEvent e) {
     case kBrightness: s.brightness = stepWrap(s.brightness, 10, 10, 100); break;
     case kBrightnessReady: s.brightness_ready = stepWrap(s.brightness_ready, 5, 0, 50); break;
     case kExit:
-      menu_active = false;
-      settings::save();
+      menuClose();
       return MenuAction::kExit;
   }
   return MenuAction::kNone;
