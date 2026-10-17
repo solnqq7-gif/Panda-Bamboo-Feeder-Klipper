@@ -100,6 +100,12 @@ constexpr float kPreloadSpeed = 15.0f;
 constexpr float kSoftLoadMm = 40.0f;   // last part of a load, slow, to meet the extruder gently
 constexpr float kSoftLoadSpeed = 8.0f;
 constexpr float kOverfeedStallMm = 3.0f;  // no carriage movement over this much overfeed = at the end
+// With the printer's heater off the feeder lets the parked slack back out (see relaxTick).
+constexpr float kRelaxSpeed = 10.0f;       // mm/s, like the pressure test's drain
+constexpr float kRelaxMarginMm = 6.0f;     // pulled at most the parking amount + this
+constexpr uint32_t kRelaxSettleMs = 2000;  // carriage out with nothing else moving this long first
+constexpr uint8_t kRelaxMax = 3;           // per heater-off stretch: the end-of-print retract and
+                                           // head moves can push the carriage out again
 constexpr uint32_t kBoostAfterMs = 1000;
 constexpr float kBoostFactor = 1.5f;
 constexpr float kJogSpeed = 15.0f;
@@ -274,6 +280,11 @@ bool follow_blocked_by_key = false;  // a physical stop waits for the current pr
 // Why READY is holding top-ups back, so each reason is logged once.
 enum class TopUpHold : uint8_t { kNone, kAnchor, kHeaterOff };
 TopUpHold buffer_blocked = TopUpHold::kNone;
+// relaxing the buffer while the printer is cold
+bool relaxing = false;
+uint8_t relax_count = 0;     // relaxes in this heater-off stretch
+uint32_t relax_wait_ms = 0;  // the carriage has been out with nothing else going on since then
+float relax_start_pos = 0;
 
 // unloading
 float load_target_mm = 0;
@@ -434,6 +445,7 @@ void enter(State s, const String &msg = "") {
   if ((s != state || msg != message) && !(routineTopUp(state, s) && !verbose)) {
     logf("%s -> %s%s%s", stateName(state), stateName(s), msg.length() ? ": " : "", msg.c_str());
   }
+  if (s != State::kReady) relaxing = false;  // whatever comes next owns the motor
   state = s;
   state_since = millis();
   message = msg;
@@ -535,12 +547,67 @@ void heldCarriageTick(const io::Sensors &s) {
   if (held_events < kHeldEventsMax) {
     held_events++;
     moonraker::Snapshot k1 = moonraker::snapshot();
-    logf("buffer (held): carriage %s, %lu comb edges since the last change (%s %s%s)",
+    logf("buffer (held): carriage %s, %lu comb edges since the last change (%s %s%s%s)",
          s.buf_rest ? "back home" : "left home", (unsigned long)(edges - held_edges), pn(),
-         moonraker::printStateName(k1.print_state), k1.fresh ? "" : ", link down");
+         moonraker::printStateName(k1.print_state), k1.fresh ? "" : ", link down",
+         state == State::kStandby ? ", standby" : "");
     if (held_events == kHeldEventsMax) logf("buffer (held): further carriage moves not logged");
   }
   held_edges = edges;
+}
+
+// A parked buffer pulls on the printer's tube fitting all the time: the spring holding the
+// carriage out is the same pull that keeps the tube taut. During a print that is the point, but
+// once the nozzle target is 0 the printer is done with the filament, and the pull would stay on
+// the fitting through the end-of-print retract and head moves and the whole idle time after.
+// Standby does not undo it, the released gear still pins the filament (the carriage was still out
+// after 20 min of standby). In October 2026 prints kept losing the tube at the printer's fitting
+// in their first minutes, after such a pause. So with the heater off the slack goes back: the
+// feeder pulls until the carriage is home and never further, because past that it would drag
+// filament out of the extruder. The first top-up once the printer heats again refills it.
+float relaxLimitMm() { return cfg().overfeed_mm + kRelaxMarginMm; }
+
+void relaxTick(const io::Sensors &s, uint32_t now) {
+  bool cold = printerHeaterOff();
+  if (relaxing) {
+    relax_wait_ms = now;  // a carriage pushed out again right after has to settle again too
+    float pulled = relax_start_pos - pos();
+    if (bufferEmpty(s)) {
+      motor::halt();
+      relaxing = false;
+      logf("buffer: relaxed %.1f mm with the %s heater off, carriage home", pulled, pn());
+      message = String(pn()) + " heater off";
+    } else if (!cold) {
+      motor::stop();
+      relaxing = false;
+      logf("buffer: relax stopped after %.1f mm, %s heating again", pulled, pn());
+    } else if (!motor::isMoving()) {  // the distance ran out, or a key stopped it
+      relaxing = false;
+      relax_count = kRelaxMax;  // either way: not again until the printer heats up
+      if (pulled >= relaxLimitMm() - 0.5f) {
+        logf("buffer: relax pulled %.0f mm and the carriage is still out - stopped, check the "
+             "buffer sensor", pulled);
+      } else {
+        logf("buffer: relax stopped after %.1f mm", pulled);
+      }
+    } else {
+      message = "relaxing buffer " + String(pulled, 0) + "mm";
+    }
+    return;
+  }
+  if (!cold) relax_count = 0;
+  if (!cold || bufferEmpty(s) || motor::isMoving() || jogging || web_hold || testActive() ||
+      relax_count >= kRelaxMax) {
+    relax_wait_ms = now;
+    return;
+  }
+  if (now - relax_wait_ms < kRelaxSettleMs) return;
+  relax_count++;
+  relaxing = true;
+  relax_start_pos = pos();
+  applyPressure();
+  motor::moveMm(Dir::kRetract, relaxLimitMm(), kRelaxSpeed);
+  message = "relaxing buffer";
 }
 
 // K1 is printing and the user asked for the keys to be locked meanwhile. A lost link keeps the
@@ -2128,6 +2195,7 @@ void runState(const io::Sensors &s, uint32_t now) {
       if (waiting_for_up && moonraker::snapshot().print_state != moonraker::PrintState::kPrinting) break;
       heldCarriageTick(s);
       if (refillTick(s, now)) break;
+      relaxTick(s, now);  // only with the carriage out, so it never meets a top-up
       if (!jogging && !motor::isMoving() && bufferEmpty(s) && !btestOwnsMotor()) {
         uint32_t blocked_ms = topUpBlockRemainingMs(now);
         if (blocked_ms) {
@@ -2154,6 +2222,7 @@ void runState(const io::Sensors &s, uint32_t now) {
       break;
 
     case State::kStandby:
+      heldCarriageTick(s);  // a tube letting go of its fitting shows up here too
       if (!s.in2) {
         enterRunout(tail_passed ? "runout: printer handles it" : "filament gone");
       } else if (!cfg().standby) {

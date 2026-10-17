@@ -48,6 +48,12 @@ void halt() { moving = false; }
 void setCurrentMa(uint16_t, uint16_t) {}
 float moveDistanceMm() { return 10; }
 void run(Dir, float) { moving = true; }
+int moves = 0;
+Dir move_dir = Dir::kFeed;
+float move_mm = 0, move_speed = 0;
+void moveMm(Dir dir, float mm, float speed) {
+  ++moves; move_dir = dir; move_mm = mm; move_speed = speed; moving = true;
+}
 }
 namespace io {
 Sensors value{true, true, false, false};
@@ -127,6 +133,15 @@ bool unload_full = false, unload_from_loaded = false, unload_past_gear = false;
 constexpr float kUnloadExtraMm = 15, kUnloadMarginMm = 300, kUnloadLearnExtraMm = 20;
 void fullTestFinish(bool, const char *, const String &) {}
 void testResultFinish(bool, const char *, const String &) {}
+bool heater_off = false;
+bool printerHeaterOff() { return heater_off; }
+bool relaxing = false;
+uint8_t relax_count = 0;
+uint32_t relax_wait_ms = 0;
+float relax_start_pos = 0;
+constexpr float kRelaxSpeed = 10, kRelaxMarginMm = 6;
+constexpr uint32_t kRelaxSettleMs = 2000;
+constexpr uint8_t kRelaxMax = 3;
 #include "feeder_under_test.inc"
 
 namespace logbuf {
@@ -452,8 +467,112 @@ void unloadCases() {
   test_pos = 0;
 }
 
+void resetRelax(bool heater_is_off) {
+  settings::current = Settings();
+  settings::get().overfeed_mm = 15;
+  io::value = {true, true, false, false};  // carriage out: the buffer holds its parked slack
+  state = State::kReady;
+  ptest_phase = PtestPhase::kOff;
+  btest_phase = BtestPhase::kOff;
+  jogging = web_hold = false;
+  motor::moving = false;
+  motor::moves = 0;
+  heater_off = heater_is_off;
+  relaxing = false;
+  relax_count = 0;
+  test_now = 10000;
+  relax_wait_ms = test_now;
+  test_pos = 0;
+  message = "";
+}
+
+void relaxAt(uint32_t dt, bool home, float pulled) {
+  test_now += dt;
+  io::value.buf_rest = home;
+  test_pos = -pulled;
+  relaxTick(io::value, test_now);
+}
+
+// Starts a relax from a settled, cold, parked buffer and checks that it did start.
+void startRelax() {
+  int moves = motor::moves;
+  relaxAt(kRelaxSettleMs, false, 0);
+  check(relaxing && motor::moves == moves + 1, "settled cold buffer starts a relax");
+}
+
+void relaxCases() {
+  resetRelax(false);
+  relaxAt(5000, false, 0);
+  check(motor::moves == 0 && !relaxing, "heater on: the parked buffer stays as it is");
+  heater_off = true;
+  relaxAt(100, false, 0);
+  relaxAt(kRelaxSettleMs - 200, false, 0);
+  check(motor::moves == 0, "heater off: waits for the carriage to settle first");
+  relaxAt(200, false, 0);
+  check(relaxing && motor::moves == 1 && motor::move_dir == Dir::kRetract &&
+            motor::move_mm == 15 + kRelaxMarginMm && motor::move_speed == kRelaxSpeed,
+        "pulls back slowly, at most the parking amount + margin");
+  relaxAt(500, false, 8);
+  check(relaxing && motor::moving && message == "relaxing buffer 8mm", "keeps pulling while out");
+  relaxAt(500, true, 14);
+  check(!relaxing && !motor::moving && message == "Printer heater off",
+        "stops the moment the carriage is home");
+  relaxAt(5000, true, 14);
+  check(motor::moves == 1, "a home carriage is never pulled further");
+
+  // The end-of-print retract and head moves can push the carriage out again.
+  for (int round = 2; round <= kRelaxMax; ++round) {
+    relaxAt(100, false, 14);
+    check(!relaxing, "a carriage pushed out again settles before the next relax");
+    startRelax();
+    relaxAt(500, true, 17);
+  }
+  relaxAt(100, false, 17);
+  relaxAt(10000, false, 17);
+  check(motor::moves == kRelaxMax && !relaxing, "at most kRelaxMax relaxes per heater-off stretch");
+  heater_off = false;
+  relaxAt(100, false, 17);
+  heater_off = true;
+  relaxAt(100, false, 17);
+  startRelax();
+  check(relax_count == 1, "heating up starts a new stretch");
+  heater_off = false;
+  relaxAt(100, false, 20);
+  check(!relaxing && !motor::moving, "heating again stops a relax at once");
+
+  resetRelax(true);
+  startRelax();
+  motor::moving = false;  // the whole distance ran out with the carriage still out
+  relaxAt(3000, false, 15 + kRelaxMarginMm);
+  relaxAt(10000, false, 15 + kRelaxMarginMm);
+  check(!relaxing && motor::moves == 1, "a relax that ran its whole distance is not repeated");
+
+  resetRelax(true);
+  startRelax();
+  motor::moving = false;  // a key press stopped it
+  relaxAt(100, false, 5);
+  relaxAt(10000, false, 5);
+  check(!relaxing && motor::moves == 1, "a relax stopped by a key stays stopped until reheating");
+
+  for (int busy = 0; busy < 4; ++busy) {
+    resetRelax(true);
+    jogging = busy == 0;
+    web_hold = busy == 1;
+    if (busy == 2) ptest_phase = PtestPhase::kHeat;
+    motor::moving = busy == 3;
+    relaxAt(10000, false, 0);
+    check(motor::moves == 0 && !relaxing, "no relax during jogs, web holds, tests or own moves");
+  }
+  resetRelax(true);
+  relaxAt(10000, true, 0);
+  check(motor::moves == 0, "an empty buffer is left alone");
+  test_pos = 0;
+}
+
 int main() {
   settingsCases(); cleanupCases(); menuCases(); freeCases(); keyCases(); unloadCases();
+  relaxCases();
   std::cout << "PASS: " << checks
-            << " regression checks (settings/API, cleanup, menu, FREE, manual keys, unload limit)\n";
+            << " regression checks (settings/API, cleanup, menu, FREE, manual keys, unload limit, "
+               "cold relax)\n";
 }
