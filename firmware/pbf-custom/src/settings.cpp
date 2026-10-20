@@ -154,6 +154,7 @@ void load() {
   current.free_on_retract = prefs.getBool("free_ret", d.free_on_retract);
   current.free_retract_mm = prefs.getUChar("free_rmm", d.free_retract_mm);
   current.notify_runout = prefs.getBool("k1_nrun", d.notify_runout);
+  current.english = prefs.getBool("lang_en", d.english);
   current.wifi_ssid = prefs.getString("wifi_ssid", "");
   current.wifi_pass = prefs.getString("wifi_pass", "");
   prefs.end();
@@ -208,6 +209,7 @@ void save() {
   prefs.putBool("free_ret", current.free_on_retract);
   prefs.putUChar("free_rmm", current.free_retract_mm);
   prefs.putBool("k1_nrun", current.notify_runout);
+  prefs.putBool("lang_en", current.english);
   prefs.putString("wifi_ssid", current.wifi_ssid);
   prefs.putString("wifi_pass", current.wifi_pass);
   prefs.end();
@@ -268,6 +270,7 @@ void appendJson(String &out) {
   out += ",\"free_on_retract\":" + String(s.free_on_retract ? "true" : "false");
   out += ",\"free_retract_mm\":" + String(s.free_retract_mm);
   out += ",\"notify_runout\":" + String(s.notify_runout ? "true" : "false");
+  out += ",\"english\":" + String(s.english ? "true" : "false");
   out += ",\"wifi_ssid\":";
   logbuf::appendJsonString(out, s.wifi_ssid.c_str());
   out += '}';
@@ -283,6 +286,7 @@ void resetToDefaults() {
   fresh.printer_name = current.printer_name;
   fresh.sensor = current.sensor;
   fresh.api_key = current.api_key;
+  fresh.english = current.english;
   current = fresh;
   save();
 }
@@ -363,6 +367,7 @@ bool applyValue(Settings &s, const String &name, const String &value) {
   else if (name == "free_on_retract") s.free_on_retract = on;
   else if (name == "free_retract_mm") valid = assignInteger(s.free_retract_mm, value, 10, 200);
   else if (name == "notify_runout") s.notify_runout = on;
+  else if (name == "english") s.english = on;
   else return false;
   return valid;
 }

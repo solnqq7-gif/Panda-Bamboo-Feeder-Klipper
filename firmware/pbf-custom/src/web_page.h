@@ -15,7 +15,8 @@ const char kIndexHtml[] PROGMEM = R"HTML(<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.45 system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif;background:var(--bg);color:var(--fg)}
 main{max-width:720px;margin:0 auto;padding:12px 16px 40px}
-h1{font-size:18px;margin:4px 0 12px}
+h1{font-size:18px;margin:4px 0 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+button.lang{margin-left:auto;padding:4px 12px;font-size:13px;font-weight:400}
 h2{font-size:14px;margin:0 0 10px;color:var(--mut);font-weight:600}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:12px}
 #state{font-size:26px;font-weight:700}
@@ -64,7 +65,7 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
 .res-ok{color:var(--acc);font-weight:700}
 .res-bad{color:var(--warn);font-weight:700}
 </style></head><body><main>
-<h1>Panda Bamboo Feeder <span class="mut" id="fw"></span></h1>
+<h1>Panda Bamboo Feeder <span class="mut" id="fw"></span><button type="button" id="langbtn" class="lang">English</button></h1>
 
 <div class="card">
   <div id="state">連線中…</div>
@@ -105,7 +106,12 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
     <button data-cmd="beep">測試蜂鳴器</button>
   </div>
   <div id="actmsg" style="min-height:1.4em;margin-top:8px;font-weight:600"></div>
-  <p class="mut">路徑長度校準預設是自動的；勾選「鎖定進退料距離」後，完整進退料都只用你設定的距離，不再自動改寫。<br>
+  <p class="mut" data-en="Path length calibration is automatic by default; with “Lock load/unload distances” ticked, full loads and unloads use only your distances and never rewrite them.<br>
+  Release gear: the motor is switched off so the gear spins freely and the printer pulls the filament out itself (for tip forming). It grips again after the timeout or on any key.
+  <code>M117 PBF:FREE</code> in the unload G-code releases it automatically, and a bare <code>M117</code> at the end grips again
+  — for 60 s after FREE there are no automatic top-ups; if %P starts a real print, that guard ends at once and top-ups resume.
+  Before a load or a long retraction, <code>M117 PBF:FOLLOW</code> keeps both sides in sync in either direction;
+  upper or lower case both work. Without a FREE marker, a followed retraction longer than the set length also switches to release.">路徑長度校準預設是自動的；勾選「鎖定進退料距離」後，完整進退料都只用你設定的距離，不再自動改寫。<br>
   放開齒輪：馬達斷電讓齒輪空轉，印表機自己把料拉出來（尖端成形用）。逾時或按任一鍵就會夾回來。
   退料 G-code 裡放 <code>M117 PBF:FREE</code> 就會自動放開，結尾 <code>M117</code> 清掉就夾回來
   —— FREE 觸發後 60 秒內不會自動輔助進料；若 %P 開始正式列印，會立刻取消保護並恢復輔助進料。
@@ -114,7 +120,8 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
 </div>
 
 <div class="card"><h2>安裝測試</h2>
-  <p class="mut">開始前：耗材已經送到 %P 擠出機並被夾住（有用耗材感測器的話要顯示有料）、%P 沒在列印、喂竹器在待命或就緒。
+  <p class="mut" data-en="Before you start: the filament is at the %P extruder and gripped (with a filament sensor, it must show filament), %P is not printing, and the feeder is READY or STAGED.
+  Results are saved to the settings automatically. Any key on the feeder, or the same button again, stops a test.">開始前：耗材已經送到 %P 擠出機並被夾住（有用耗材感測器的話要顯示有料）、%P 沒在列印、喂竹器在待命或就緒。
   結果會自動存進設定。測試中按喂竹器任一鍵、或再按一次同一個按鈕就會中止。</p>
   <div class="tests">
     <button class="test lockable" data-test="fulltest" data-kind="full"><b>綜合測試</b>
@@ -130,7 +137,8 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
 
 <div class="card"><h2>設定</h2>
 <form id="cfg">
-  <p class="mut" style="margin:0 0 8px">兩個電流級別選單改了就立即套用；其他欄位要按最下面的「儲存設定」。
+  <p class="mut" style="margin:0 0 8px" data-en="The two current-level menus apply as soon as you change them; everything else needs “Save settings” at the bottom.
+  Fields with a <b>?</b> are easy to get wrong: tap it for an explanation.">兩個電流級別選單改了就立即套用；其他欄位要按最下面的「儲存設定」。
   有 <b>?</b> 的欄位比較容易設錯，點一下看說明。</p>
   <div class="grp motor"><h3>馬達與緩衝</h3>
   <label>壓力級別<select name="pressure"></select></label>
@@ -197,6 +205,58 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
 </main>
 <script>
 const $=s=>document.querySelector(s);
+// Language. The device setting decides (push notifications follow it too); the URL or this
+// browser's last choice gives it before the settings arrive, so the page does not flicker.
+let EN=false;
+{const q=new URLSearchParams(location.search).get('lang');
+  if(q)EN=q==='en';else try{EN=localStorage.getItem('pbf_lang')==='en'}catch(e){}}
+const L=(zh,en)=>EN?en:zh;
+function setLang(en){try{localStorage.setItem('pbf_lang',en?'en':'zh')}catch(e){}location.replace('?lang='+(en?'en':'zh'))}
+// The page is written in Chinese; in English every text node found here is swapped, and
+// paragraphs with markup carry their English in data-en.
+const EN_TEXT={'連線中…':'Connecting…','入料口':'Inlet','齒輪':'Gear','緩衝':'Buffer','馬達電源24V':'Motor 24V',
+'統計（存在 flash）':'Statistics (stored in flash)','讀取中…':'Loading…','清除統計':'Clear statistics',
+'清除所有統計？這個動作無法復原。':'Clear all statistics? This cannot be undone.',
+'操作':'Controls','按住進料':'Hold to feed','按住退料':'Hold to retract','距離進料':'Feed distance',
+'距離退料':'Retract distance','停止／解除警報':'Stop / clear alarm','放開齒輪':'Release gear','測試蜂鳴器':'Test buzzer',
+'安裝測試':'Setup tests','綜合測試':'Full test','緩衝量測試':'Buffer travel test','壓力測試':'Pressure test',
+'第一次安裝用這個：先跑緩衝量測試，再用新的停駐量跑壓力測試，最後給一份總結。約 4～8 分鐘，會加熱噴頭、用掉約 30cm 耗材':
+'Use this on first install: runs the buffer travel test, then the pressure test with the new parking amount, then gives a summary. About 4–8 minutes; heats the nozzle and uses about 30 cm of filament',
+'把活動件推到底量行程，自動設定停駐量（外側留 5mm 吸收回抽）。約 20 秒，不花耗材、不用加熱':
+'Pushes the carriage to the end to measure its travel and sets the parking amount (5 mm left outside for retractions). About 20 s, no filament used, no heating',
+'找出推得動活動件、待機夾得住耗材的最低電流（待機依 60、90、120、150、180、200、250mA… 往上找）。推料加 1 級、夾持加 2 格餘裕。約 4～8 分鐘，會加熱噴頭、用掉約 30cm 耗材':
+'Finds the lowest currents that still push the carriage and hold the filament at standstill (holding tries 60, 90, 120, 150, 180, 200, 250 mA… upwards). Adds 1 level of margin to pushing and 2 steps to holding. About 4–8 minutes; heats the nozzle and uses about 30 cm of filament',
+'設定':'Settings','馬達與緩衝':'Motor and buffer','速度':'Speed','螢幕與蜂鳴器':'Screen and buzzer',
+'印表機連線（Klipper / Moonraker）':'Printer link (Klipper / Moonraker)',
+'壓力級別':'Pressure level','進退料電流級別':'Load/unload current level','待機夾持電流 (mA)':'Holding current (mA)',
+'緩衝停駐量 (mm)':'Buffer parking amount (mm)','卡料判定長度 (mm)':'Jam length (mm)','預載長度 (mm)':'Preload length (mm)',
+'空閒時放鬆馬達':'Release motor when idle','%P 閒置時省電待機（放開齒輪）':'Standby while %P is idle (gear released)',
+'閒置多久進入省電待機 (分鐘)':'Idle time before standby (min)','馬達方向反轉':'Reverse motor direction','每 mm 步數':'Steps per mm',
+'輔助進料速度 (mm/s)':'Top-up speed (mm/s)','手動送料速度 (mm/s)':'Manual feed speed (mm/s)','退料速度 (mm/s)':'Retract speed (mm/s)',
+'螢幕亮度：一般 (%)':'Screen brightness: normal (%)','螢幕亮度：待命 READY (%)':'Screen brightness: READY (%)',
+'螢幕亮度：輔助進料時 (%)':'Screen brightness: during top-ups (%)','蜂鳴器':'Buzzer','啟用':'Enabled',
+'印表機名稱（英數，最多 12 字）':'Printer name (letters and digits, max 12)','%P 位址（IP 或主機名稱）':'%P address (IP or host name)',
+'連接埠（Moonraker，通常 7125）':'Port (Moonraker, usually 7125)','API key（Moonraker 拒絕連線時才需要）':'API key (only if Moonraker refuses the feeder)',
+'清除 API key':'Clear API key','留空儲存＝不變':'Empty = keep the stored key','耗材感測器（判斷料到擠出機）':'Filament sensor (filament at the extruder)',
+'列印中鎖定按鍵與網頁進退料':'Lock keys and web moves while printing','卡料時暫停 %P 並推播':'On a jam, pause %P and notify',
+'列印中擠出這麼多還沒輔助進料就警報 (mm，0＝關閉)':'No-feed alarm after this much extrusion (mm, 0 = off)',
+'進料到擠出機自動停（耗材感測器）':'Stop loading at the extruder (filament sensor)','感測器偵測到料後再送 (mm，最多 5000)':'Feed on after the sensor triggers (mm, max 5000)',
+'路徑校準餘裕 (mm)':'Path calibration margin (mm)','鎖定進退料距離（禁止自動校準）':'Lock load/unload distances (no auto calibration)',
+'壓力測試噴頭溫度 (C)':'Pressure test nozzle temperature (C)','%P 回抽時同步倒轉（非列印中）':'Follow %P retractions (not while printing)',
+'%P 退料時放開齒輪（M117 PBF:FREE）':'Release the gear when %P unloads (M117 PBF:FREE)','放開齒輪逾時 (秒)':'Release timeout (s)',
+'沒有訊號時靠回抽長度判斷':'Without a marker, detect unloads by retraction length','判定為退料的回抽長度 (mm)':'Retraction that counts as an unload (mm)',
+'耗材用完時推播':'Notify when the filament runs out','測試推播':'Test notification','需要 Mobileraker Companion':'Needs Mobileraker Companion',
+'儲存設定':'Save settings','名稱 (SSID)':'Name (SSID)','密碼':'Password','儲存並重新開機':'Save and restart',
+'韌體更新':'Firmware update','上傳':'Upload','選擇 firmware.bin 上傳，完成後會自動重新開機。':'Choose firmware.bin to upload. The feeder restarts when it is done.'};
+if(EN){
+  document.documentElement.lang='en';document.title='PBF feeder';
+  document.querySelectorAll('[data-en]').forEach(e=>e.innerHTML=e.dataset.en);
+  const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let n;
+  while(n=w.nextNode()){const k=n.nodeValue.trim();if(k&&EN_TEXT[k]!==undefined)n.nodeValue=n.nodeValue.replace(k,()=>EN_TEXT[k])}
+  document.querySelectorAll('[data-confirm]').forEach(e=>e.dataset.confirm=EN_TEXT[e.dataset.confirm]||e.dataset.confirm);
+}
+$('#langbtn').textContent=L('English','中文');
+$('#langbtn').onclick=async()=>{try{await post('/api/settings',{english:EN?0:1})}catch(e){}setLang(!EN)};
 // The printer's name from the settings replaces every %P on the page.
 let PN='Printer';
 const P=t=>t.replace(/%P/g,PN);
@@ -204,14 +264,19 @@ const tpl=[];{const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TE
   while(n=w.nextNode())if(n.nodeValue.includes('%P')&&n.parentNode.nodeName!=='SCRIPT')tpl.push([n,n.nodeValue])}
 function applyName(){tpl.forEach(([n,t])=>n.nodeValue=P(t))}
 applyName();
-const NAMES={"NO POWER":"馬達沒有電源（24V？）","EMPTY":"無料","INSERTING":"咬料中","PUSH IN":"請把耗材再推進去",
+const NAMES=L({"NO POWER":"馬達沒有電源（24V？）","EMPTY":"無料","INSERTING":"咬料中","PUSH IN":"請把耗材再推進去",
 "PRELOAD":"預載中","STAGED":"就緒（緩衝暫停，可換管）","LOADING":"送料中","READY":"待命（緩衝啟動）","FEEDING":"輔助進料中","STANDBY":"省電待機（齒輪放開）",
 "RUNOUT":"斷料：交給 %P 處理","UNLOADING":"退料中","UNLOADED":"已退料","STUCK!":"卡料！","ERROR":"錯誤",
-"FOLLOW":"同步 %P 進退料中","FREE":"齒輪放開（印表機自己拉）"};
-const K1NAMES={"printing":"列印中","paused":"暫停","standby":"閒置","complete":"完成","cancelled":"已取消","error":"錯誤","off":"未啟用","not connected":"未連線","unauthorized":"被拒絕（要 API key）"};
+"FOLLOW":"同步 %P 進退料中","FREE":"齒輪放開（印表機自己拉）"},
+{"NO POWER":"No motor power (24 V?)","EMPTY":"Empty","INSERTING":"Gripping filament","PUSH IN":"Push the filament in further",
+"PRELOAD":"Preloading","STAGED":"Staged (buffer paused, tube can be swapped)","LOADING":"Loading","READY":"Ready (buffer on)","FEEDING":"Topping up","STANDBY":"Standby (gear released)",
+"RUNOUT":"Runout: %P takes over","UNLOADING":"Unloading","UNLOADED":"Unloaded","STUCK!":"Jam!","ERROR":"Error",
+"FOLLOW":"Following %P","FREE":"Gear released (printer pulls)"});
+const K1NAMES=L({"printing":"列印中","paused":"暫停","standby":"閒置","complete":"完成","cancelled":"已取消","error":"錯誤","off":"未啟用","not connected":"未連線","unauthorized":"被拒絕（要 API key）"},
+{"printing":"printing","paused":"paused","standby":"idle","complete":"complete","cancelled":"cancelled","error":"error","off":"off","not connected":"not connected","unauthorized":"refused (needs API key)"});
 async function get(p){const r=await fetch(p,{cache:'no-store'});return r.json()}
 async function post(p,b){const r=await fetch(p,{method:'POST',body:new URLSearchParams(b)});const data=await r.json();
-  if(!r.ok)throw new Error((data.error||'請求失敗')+(data.field?'：'+data.field:''));return data}
+  if(!r.ok)throw new Error((data.error||L('請求失敗','request failed'))+(data.field?L('：',': ')+data.field:''));return data}
 const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
 function pill(id,on,txt){const e=$(id);e.classList.toggle('on',!!on);if(txt)e.textContent=txt}
 async function refresh(){
@@ -219,35 +284,55 @@ async function refresh(){
     const s=await get('/api/status');
     $('#state').textContent=P(NAMES[s.state]||s.state);
     $('#state').style.color=s.alarm?'var(--warn)':'';
-    $('#msg').textContent=s.msg+(s.menu?'（喂竹器正在設定選單中）':'');
+    $('#msg').textContent=s.msg+(s.menu?L('（喂竹器正在設定選單中）',' (settings menu open on the feeder)'):'');
     $('#fw').textContent='v'+s.fw;
-    pill('#s_in1',s.in1,s.in1?'入料口：有料':'入料口：無料');pill('#s_in2',s.in2,s.in2?'齒輪：已咬料':'齒輪：無料');
-    pill('#s_buf',s.buf_full,'緩衝：'+(s.buf_rest?'原位':'撐開')+(s.buf_full?'・有存料':'・空'));
-    pill('#s_drv',s.driver,s.driver?'馬達電源24V':'馬達電源24V：沒電');
-    const k1=K1NAMES[s.k1]||s.k1;pill('#s_k1',s.k1!=='not connected'&&s.k1!=='off',PN+'：'+k1+(s.k1_toolhead?'・感測器有料':''));
+    pill('#s_in1',s.in1,s.in1?L('入料口：有料','Inlet: filament'):L('入料口：無料','Inlet: empty'));
+    pill('#s_in2',s.in2,s.in2?L('齒輪：已咬料','Gear: gripped'):L('齒輪：無料','Gear: empty'));
+    pill('#s_buf',s.buf_full,L('緩衝：','Buffer: ')+(s.buf_rest?L('原位','home'):L('撐開','out'))+(s.buf_full?L('・有存料',' · stocked'):L('・空',' · empty')));
+    pill('#s_drv',s.driver,s.driver?L('馬達電源24V','Motor 24V'):L('馬達電源24V：沒電','Motor 24V: off'));
+    const k1=K1NAMES[s.k1]||s.k1;pill('#s_k1',s.k1!=='not connected'&&s.k1!=='off',PN+L('：',': ')+k1+(s.k1_toolhead?L('・感測器有料',' · sensor sees filament'):''));
     const sk=JSON.stringify(s.sensors||{});
     if(sk!==sensorsKey&&document.activeElement!==$('#cfg').sensor){sensorsKey=sk;sensors=s.sensors||{};fillSensors()}
-    const fb=$('#freebtn');fb.textContent=s.free?'夾住齒輪':'放開齒輪';fb.dataset.cmd=s.free?'grip':'free';
+    const fb=$('#freebtn');fb.textContent=s.free?L('夾住齒輪','Grip gear'):L('放開齒輪','Release gear');fb.dataset.cmd=s.free?'grip':'free';
     fb.className=s.free?'orange':'';fb.disabled=!s.free&&!s.can_free;
     document.querySelectorAll('.lockable').forEach(b=>b.disabled=!!s.locked);
     showTests(s);
-    $('#lockmsg').textContent=P(s.lock_offline?'%P 連線中斷（最後狀態：列印中）：進退料維持鎖定，%P 回報沒在列印才解鎖（停止仍可使用）'
-      :s.locked?'%P 列印中：進退料操作已鎖定（停止仍可使用）':'');
-    $('#info').textContent=`${s.moving?'馬達運轉中・':''}本次移動 ${s.move_mm}mm・壓力 L${s.pressure}（${s.current_ma}mA）・位置 ${s.pos}mm`
-      +`・退料訊號 ${s.free?({marker:'M117 放開',retract:'回抽判定 放開',manual:'手動 放開'})[s.free_src]:(s.k1_pbf_mode===2?'M117 同步':(s.k1_pbf_display||s.k1_pbf_macro?'待命':'無法讀取'))}`
-      +(s.topup_block_s?`・輔助進料保護 ${s.topup_block_s}s`:'')
-      +(s.refill?(s.refill===2?'・續料：推新料進擠出機中':'・續料：等接頭到擠出機'):'')
-      +(s.nofeed_used>=30?`・已擠出 ${s.nofeed_used}mm 沒輔助進料`:'')
-      +(s.state==='STANDBY'?`・${PN} 加熱、列印或按任一鍵就會喚醒`:s.standby_in_s>=0?`・${mmss(s.standby_in_s)} 後省電待機`:'')
-      +`・WiFi ${s.wifi_mode} ${s.ip}${s.rssi?'（'+s.rssi+' dBm）':''}`;
-    if(s.stats){const t=s.stats;$('#stats').innerHTML=
+    $('#lockmsg').textContent=P(s.lock_offline?L('%P 連線中斷（最後狀態：列印中）：進退料維持鎖定，%P 回報沒在列印才解鎖（停止仍可使用）',
+        '%P link lost (last state: printing): moves stay locked until %P reports it is not printing (Stop still works)')
+      :s.locked?L('%P 列印中：進退料操作已鎖定（停止仍可使用）','%P is printing: feed and retract are locked (Stop still works)'):'');
+    const sep=L('・',' · ');
+    const unloadSig=s.free?L({marker:'M117 放開',retract:'回抽判定 放開',manual:'手動 放開'},{marker:'M117 release',retract:'released (retraction)',manual:'released by hand'})[s.free_src]
+      :(s.k1_pbf_mode===2?L('M117 同步','M117 follow'):(s.k1_pbf_display||s.k1_pbf_macro?L('待命','idle'):L('無法讀取','unreadable')));
+    $('#info').textContent=(s.moving?L('馬達運轉中','motor running')+sep:'')
+      +L(`本次移動 ${s.move_mm}mm・壓力 L${s.pressure}（${s.current_ma}mA）・位置 ${s.pos}mm・退料訊號 `,
+         `last move ${s.move_mm} mm · pressure L${s.pressure} (${s.current_ma} mA) · position ${s.pos} mm · unload signal `)+unloadSig
+      +(s.topup_block_s?sep+L(`輔助進料保護 ${s.topup_block_s}s`,`top-up guard ${s.topup_block_s} s`):'')
+      +(s.refill?sep+(s.refill===2?L('續料：推新料進擠出機中','refill: pushing the new filament into the extruder')
+                                  :L('續料：等接頭到擠出機','refill: waiting for the joint to reach the extruder')):'')
+      +(s.nofeed_used>=30?sep+L(`已擠出 ${s.nofeed_used}mm 沒輔助進料`,`${s.nofeed_used} mm extruded without a top-up`):'')
+      +(s.state==='STANDBY'?sep+L(`${PN} 加熱、列印或按任一鍵就會喚醒`,`${PN} heating, printing or any key wakes it`)
+        :s.standby_in_s>=0?sep+L(`${mmss(s.standby_in_s)} 後省電待機`,`standby in ${mmss(s.standby_in_s)}`):'')
+      +sep+`WiFi ${s.wifi_mode} ${s.ip}${s.rssi?L('（'+s.rssi+' dBm）',' ('+s.rssi+' dBm)'):''}`;
+    if(s.stats){const t=s.stats;$('#stats').innerHTML=L(
       `送出 <b>${t.fed_m}</b> m・退回 <b>${t.pulled_m}</b> m・輔助進料 <b>${t.top_ups}</b> 次<br>`+
-      `卡料警報 <b>${t.stuck_alarms}</b>・退料卡住 <b>${t.unload_jams}</b>・UART 干擾 <b>${t.uart_hiccups}</b>・通電 <b>${t.powered_h}</b> 小時`+
-      (t.stored?'':'<br><span style="color:var(--warn)">無法寫入 flash，只計算本次開機</span>')}
-  }catch(e){$('#msg').textContent='連線中斷，重試中…'}
+      `卡料警報 <b>${t.stuck_alarms}</b>・退料卡住 <b>${t.unload_jams}</b>・UART 干擾 <b>${t.uart_hiccups}</b>・通電 <b>${t.powered_h}</b> 小時`,
+      `Fed <b>${t.fed_m}</b> m · retracted <b>${t.pulled_m}</b> m · top-ups <b>${t.top_ups}</b><br>`+
+      `Jam alarms <b>${t.stuck_alarms}</b> · unload jams <b>${t.unload_jams}</b> · UART glitches <b>${t.uart_hiccups}</b> · powered <b>${t.powered_h}</b> h`)+
+      (t.stored?'':'<br><span style="color:var(--warn)">'+L('無法寫入 flash，只計算本次開機','Cannot write to flash: counting this boot only')+'</span>')}
+  }catch(e){$('#msg').textContent=L('連線中斷，重試中…','Connection lost, retrying…')}
 }
-const TKIND={full:'綜合測試',buffer:'緩衝量測試',pressure:'壓力測試'};
-const TCODE={cancelled:'已中止',no_power:'馬達沒有 24V 電源',no_filament:'喂竹器沒有耗材：先插料並送到 %P',
+const TKIND=L({full:'綜合測試',buffer:'緩衝量測試',pressure:'壓力測試'},{full:'Full test',buffer:'Buffer travel test',pressure:'Pressure test'});
+const TCODE=EN?{cancelled:'Stopped',no_power:'No 24 V motor power',no_filament:'No filament in the feeder: insert it and load it to %P first',
+busy:'The feeder is busy: wait until it is READY again',k1_link:'Cannot reach %P: check the address and port in the settings',k1_printing:'Not while %P is printing or paused',
+k1_empty:"%P's filament sensor sees no filament: load the filament to the %P extruder first",stopped:'The test was interrupted (error or motor power lost)',
+drain_failed:'Could not bring the buffer home: check whether the carriage is stuck',
+never_left_home:'Fed 30 mm and the carriage never moved: the %P extruder may not grip the filament, or the tube is not connected',
+no_end:'Could not find the end of the travel: the comb sensor may give no signal',inconsistent:'The two measurements differ too much: fix the tube in place and test again',
+short_travel:'Travel too short: check that the PTFE tube is not too short or bent too tightly',
+park_weak:'The current pressure level cannot push to the new parking position: run the pressure test next (or use the full test)',
+push_failed:'No pressure level could push the carriage: check the path for a jam',
+hold_failed:'The holding current cannot hold against the printer: check that the gear grips the filament',heat_failed:'The nozzle did not reach the set temperature'}
+:{cancelled:'已中止',no_power:'馬達沒有 24V 電源',no_filament:'喂竹器沒有耗材：先插料並送到 %P',
 busy:'喂竹器正在動作，等它回到待命再按',k1_link:'連不到 %P：檢查設定裡的位址和連接埠',k1_printing:'%P 列印中或暫停中不能測試',
 k1_empty:'%P 的耗材感測器沒有料：先把耗材送到 %P 擠出機',stopped:'測試被中斷（錯誤或馬達斷電）',
 drain_failed:'無法把緩衝退回原位：檢查活動件是否卡住',
@@ -261,26 +346,33 @@ let resSeq=-1;
 function showTests(s){
   document.querySelectorAll('button.test').forEach(b=>{
     const run=s.test===b.dataset.kind;b.classList.toggle('run',run);
-    b.querySelector('b').textContent=(run?'中止':'')+TKIND[b.dataset.kind];
+    b.querySelector('b').textContent=(run?L('中止','Stop: '):'')+TKIND[b.dataset.kind];
     if(s.test&&!run)b.disabled=true;
   });
-  $('#tprog').textContent=s.test?TKIND[s.test]+'進行中：'+s.msg:'';
+  $('#tprog').textContent=s.test?TKIND[s.test]+L('進行中：',' running: ')+s.msg:'';
   const r=s.result;if(!r||!r.kind||!r.seq){$('#tres').innerHTML='';return}
   if(resSeq>=0&&r.seq!==resSeq)loadCfg();  // the test saved new settings
   resSeq=r.seq;
-  const L=[];
-  if(r.travel_mm>0)L.push(`活動件行程 <b>${r.travel_mm}</b>mm（離開原位前 ${r.home_mm}mm）→ 停駐量 ${r.overfeed_old} → <b>${r.overfeed}</b>mm，`+
-    `外側保留 ${(r.travel_mm-r.overfeed).toFixed(1)}mm 吸收回抽，每次輔助進料約 ${(r.home_mm+r.overfeed).toFixed(0)}mm`);
-  if(r.pressure)L.push(`壓力級別 <b>L${r.pressure}</b>（${r.pressure_ma}mA）`+(r.hold_ma?`・待機夾持 <b>${r.hold_ma}</b>mA`:''));
-  if(r.idle_release_fixed)L.push('已關閉「空閒時放鬆馬達」：緩衝要齒輪夾住才會運作');
+  const lines=[];
+  const keep=(r.travel_mm-r.overfeed).toFixed(1),each=(r.home_mm+r.overfeed).toFixed(0);
+  if(r.travel_mm>0)lines.push(L(`活動件行程 <b>${r.travel_mm}</b>mm（離開原位前 ${r.home_mm}mm）→ 停駐量 ${r.overfeed_old} → <b>${r.overfeed}</b>mm，`+
+    `外側保留 ${keep}mm 吸收回抽，每次輔助進料約 ${each}mm`,
+    `Carriage travel <b>${r.travel_mm}</b> mm (${r.home_mm} mm before leaving home) → parking ${r.overfeed_old} → <b>${r.overfeed}</b> mm, `+
+    `${keep} mm left outside for retractions, about ${each} mm per top-up`));
+  if(r.pressure)lines.push(L(`壓力級別 <b>L${r.pressure}</b>（${r.pressure_ma}mA）`,`Pressure level <b>L${r.pressure}</b> (${r.pressure_ma} mA)`)
+    +(r.hold_ma?L(`・待機夾持 <b>${r.hold_ma}</b>mA`,` · holding <b>${r.hold_ma}</b> mA`):''));
+  if(r.idle_release_fixed)lines.push(L('已關閉「空閒時放鬆馬達」：緩衝要齒輪夾住才會運作',
+    'Turned off “Release motor when idle”: the buffer only works with the gear gripping'));
   const why=P(TCODE[r.code]||r.code);
-  let head=r.ok?`<span class="res-ok">✓ ${TKIND[r.kind]}通過</span>`:`<span class="res-bad">✗ ${TKIND[r.kind]}未通過：${why}</span>`;
-  if(r.ok&&r.code)L.push(`<span class="res-bad">注意：${why}</span>`);
-  $('#tres').innerHTML=head+(L.length?'<br>'+L.join('<br>'):'')+`<div class="mut">${r.detail.replace(/</g,'&lt;')}</div>`;
+  let head=r.ok?`<span class="res-ok">✓ ${TKIND[r.kind]}${L('通過',' passed')}</span>`
+    :`<span class="res-bad">✗ ${TKIND[r.kind]}${L('未通過：',' failed: ')}${why}</span>`;
+  if(r.ok&&r.code)lines.push(`<span class="res-bad">${L('注意：','Note: ')}${why}</span>`);
+  $('#tres').innerHTML=head+(lines.length?'<br>'+lines.join('<br>'):'')+`<div class="mut">${r.detail.replace(/</g,'&lt;')}</div>`;
 }
 document.querySelectorAll('button.test').forEach(b=>b.onclick=async()=>{
-  if(!b.classList.contains('run')&&!confirm(P('開始'+TKIND[b.dataset.kind]+'？耗材要已經送到 %P 擠出機，%P 不能在列印。')))return;
-  try{await post('/api/action',{cmd:b.dataset.test});}catch(e){actMsg('送出失敗：連線中斷')}
+  if(!b.classList.contains('run')&&!confirm(P(L('開始'+TKIND[b.dataset.kind]+'？耗材要已經送到 %P 擠出機，%P 不能在列印。',
+    'Start the '+TKIND[b.dataset.kind].toLowerCase()+'? The filament must already be at the %P extruder, and %P must not be printing.'))))return;
+  try{await post('/api/action',{cmd:b.dataset.test});}catch(e){actMsg(L('送出失敗：連線中斷','Not sent: connection lost'))}
   refresh();
 });
 let seq=0;
@@ -289,8 +381,8 @@ async function pollLog(){
     const r=await get('/api/log?since='+seq);seq=r.next;
     if(!r.lines.length)return;
     const pre=$('#log');const atEnd=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-20;
-    let t=pre.textContent+r.lines.join('\n')+'\n';const L=t.split('\n');
-    if(L.length>500)t=L.slice(-500).join('\n');
+    let t=pre.textContent+r.lines.join('\n')+'\n';const rows=t.split('\n');
+    if(rows.length>500)t=rows.slice(-500).join('\n');
     pre.textContent=t;if(atEnd)pre.scrollTop=pre.scrollHeight;
   }catch(e){}
 }
@@ -298,11 +390,11 @@ let actTimer;
 function actMsg(t){$('#actmsg').textContent=t;clearTimeout(actTimer);actTimer=setTimeout(()=>$('#actmsg').textContent='',2500)}
 document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=async()=>{
   if(b.dataset.confirm&&!confirm(b.dataset.confirm))return;
-  try{const r=await post('/api/action',{cmd:b.dataset.cmd,mm:b.dataset.mm||0});actMsg((r.ok?'已送出：':'失敗：')+b.textContent)}
-  catch(e){actMsg('送出失敗：連線中斷')}
+  try{const r=await post('/api/action',{cmd:b.dataset.cmd,mm:b.dataset.mm||0});actMsg((r.ok?L('已送出：','Sent: '):L('失敗：','Failed: '))+b.textContent)}
+  catch(e){actMsg(L('送出失敗：連線中斷','Not sent: connection lost'))}
   refresh();
 });
-const lvl=i=>`L${i}（${250+(i-1)*50}mA）`;
+const lvl=i=>{const ma=250+(i-1)*50;return L(`L${i}（${ma}mA）`,`L${i} (${ma} mA)`)};
 function fillLevels(sel,zero){
   sel.innerHTML='';if(zero)sel.add(new Option(zero,0));
   for(let i=1;i<=10;i++)sel.add(new Option(lvl(i),i));
@@ -313,19 +405,20 @@ function fillSensors(cur){
   const sel=$('#cfg').sensor,found=sensors.found||[];let keep=cur!==undefined?cur:sel.value;
   if(keep.includes(' '))keep=keep.slice(keep.indexOf(' ')+1);  // "filament_switch_sensor x" -> "x"
   sel.innerHTML='';
-  sel.add(new Option('自動'+(sensors.active?'（目前：'+sensors.active+'）':'（沒找到感測器）'),''));
+  sel.add(new Option(L('自動','Auto')+(sensors.active?L('（目前：'+sensors.active+'）',' (now: '+sensors.active+')'):L('（沒找到感測器）',' (no sensor found)')),''));
   found.forEach(n=>sel.add(new Option(n,n)));
-  if(keep&&keep!=='none'&&!found.includes(keep))sel.add(new Option(keep+'（印表機沒有這個）',keep));
-  sel.add(new Option('不使用感測器','none'));
+  if(keep&&keep!=='none'&&!found.includes(keep))sel.add(new Option(keep+L('（印表機沒有這個）',' (not on the printer)'),keep));
+  sel.add(new Option(L('不使用感測器','No sensor'),'none'));
   sel.value=keep;
 }
 async function loadCfg(){
   const c=await get('/api/settings');const f=$('#cfg');
-  fillLevels(f.pressure);fillLevels(f.move_level,'同壓力級別');fillSensors(c.sensor||'');
+  if(c.english!==undefined&&!!c.english!==EN){setLang(!!c.english);return}  // the device setting wins
+  fillLevels(f.pressure);fillLevels(f.move_level,L('同壓力級別','Same as pressure level'));fillSensors(c.sensor||'');
   PN=c.printer_name||'Printer';applyName();
   for(const el of f.elements){if(!el.name||el.name==='sensor'||el.name==='api_key')continue;if(el.type==='checkbox')el.checked=!!c[el.name];else el.value=c[el.name]}
   // The key is never sent back: show only whether one is stored.
-  f.api_key.value='';f.api_key.placeholder=c.api_key_set?'已設定':'未設定';$('#keyrow').hidden=!c.api_key_set;
+  f.api_key.value='';f.api_key.placeholder=c.api_key_set?L('已設定','stored'):L('未設定','not set');$('#keyrow').hidden=!c.api_key_set;
   $('#wifi').ssid.value=c.wifi_ssid||'';
   $('#load_mm').value=c.load_mm;$('#unload_mm').value=c.unload_mm;
 }
@@ -334,9 +427,9 @@ function holdButton(id,dir){
   const b=$(id);let t=null;
   const send=()=>post('/api/action',{cmd:'hold',dir}).catch(()=>{});
   const start=e=>{e.preventDefault();if(t)return;if(b.setPointerCapture)b.setPointerCapture(e.pointerId);
-    b.classList.add('active');send();t=setInterval(send,250);actMsg(b.textContent+'中…')};
+    b.classList.add('active');send();t=setInterval(send,250);actMsg(b.textContent+L('中…','…'))};
   const stop=()=>{if(!t)return;clearInterval(t);t=null;b.classList.remove('active');
-    post('/api/action',{cmd:'hold_stop'}).then(refresh).catch(()=>{});actMsg('已放開')};
+    post('/api/action',{cmd:'hold_stop'}).then(refresh).catch(()=>{});actMsg(L('已放開','Released'))};
   b.addEventListener('pointerdown',start);
   ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,stop));
   b.addEventListener('contextmenu',e=>e.preventDefault());
@@ -345,20 +438,37 @@ holdButton('#hold_feed','feed');holdButton('#hold_back','retract');
 document.addEventListener('visibilitychange',()=>{if(document.hidden)post('/api/action',{cmd:'hold_stop'}).catch(()=>{})});
 async function distAction(cmd,input,label){
   const mm=$(input).value;
-  try{const r=await post('/api/action',{cmd,mm});actMsg((r.ok?'已送出：':'失敗：')+label+' '+mm+'mm')}
-  catch(e){actMsg('送出失敗：連線中斷')}
+  try{const r=await post('/api/action',{cmd,mm});actMsg((r.ok?L('已送出：','Sent: '):L('失敗：','Failed: '))+label+' '+mm+'mm')}
+  catch(e){actMsg(L('送出失敗：連線中斷','Not sent: connection lost'))}
   refresh();
 }
-$('#dist_feed').onclick=()=>distAction('feed_dist','#load_mm','距離進料');
-$('#dist_back').onclick=()=>distAction('unload_dist','#unload_mm','距離退料');
-$('#cfg').pressure.onchange=()=>post('/api/settings',{pressure:$('#cfg').pressure.value}).then(()=>{actMsg('壓力級別已套用 L'+$('#cfg').pressure.value);cfgMsg('壓力級別已套用');refresh()}).catch(e=>cfgMsg('儲存失敗：'+e.message));
+const saveFailed=e=>L('儲存失敗：','Not saved: ')+e.message;
+$('#dist_feed').onclick=()=>distAction('feed_dist','#load_mm',L('距離進料','Feed distance'));
+$('#dist_back').onclick=()=>distAction('unload_dist','#unload_mm',L('距離退料','Retract distance'));
+$('#cfg').pressure.onchange=()=>post('/api/settings',{pressure:$('#cfg').pressure.value}).then(()=>{
+  actMsg(L('壓力級別已套用 L','Pressure level set to L')+$('#cfg').pressure.value);cfgMsg(L('壓力級別已套用','Pressure level applied'));refresh()}).catch(e=>cfgMsg(saveFailed(e)));
 $('#cfg').move_level.onchange=()=>post('/api/settings',{move_level:$('#cfg').move_level.value})
-  .then(()=>cfgMsg('進退料電流級別已套用')).catch(e=>cfgMsg('儲存失敗：'+e.message));
-$('#keyclr').onclick=async()=>{if(!confirm('清除 API key？'))return;
-  try{await post('/api/settings',{api_key:''});cfgMsg('API key 已清除');loadCfg()}catch(e){cfgMsg('儲存失敗：'+e.message)}};
+  .then(()=>cfgMsg(L('進退料電流級別已套用','Load/unload current level applied'))).catch(e=>cfgMsg(saveFailed(e)));
+$('#keyclr').onclick=async()=>{if(!confirm(L('清除 API key？','Clear the API key?')))return;
+  try{await post('/api/settings',{api_key:''});cfgMsg(L('API key 已清除','API key cleared'));loadCfg()}catch(e){cfgMsg(saveFailed(e))}};
 function cfgMsg(t){$('#cfgmsg').textContent=t;setTimeout(()=>$('#cfgmsg').textContent='',2000)}
 // A "?" only next to the settings that are easy to get wrong. One shared box opens under the row.
-const HELP={
+const HELP=EN?{
+pressure:'Motor current for pushing during top-ups (L1 = 250 mA, +50 mA per level). Too low and the carriage is not pushed out, which shows up as false jam alarms; too high only makes the motor warmer. Let the pressure test choose it. Applies <b>immediately</b>.',
+move_level:'Current for loading, unloading and manual moves. These drag the filament through the whole tube and need far more force than a top-up; with “Same as pressure level” and a low pressure level, long moves tend to slip. Keeping L8 is recommended.',
+hold_ma:'Current that holds the filament while the gear stands still. Too low and %P pulls the filament straight through the gear, so the buffer never reacts; too high and the motor runs warmer all print long. The pressure test finds the lowest value and adds a margin; it never exceeds the run current.',
+overfeed_mm:'How much more is fed after the carriage moves out, which decides where the buffer normally parks within its travel. More means more stock and fewer top-ups; but too close to the end of the travel leaves no room for %P’s retractions, and the pull lands on the tube fitting at the extruder. The buffer travel test sets it (travel minus 5 mm).',
+stuck_mm:'If a top-up feeds this much and the carriage is still home (not pushed out), it is a jam and the alarm goes off. Too small gives false alarms; too large means that if the tube comes off the extruder fitting, more filament is pushed into the loose tube.',
+idle_release:'When ticked, the gear spins freely whenever the feeder stops, so %P pulls filament from the spool straight through the gear and the buffer does nothing. <b>Leave it off to use the buffer.</b> To save power, use “Standby” below: it only lets go when %P certainly needs no filament.',
+invert_dir:'Tick it only after changing the motor or its wiring, when feeding runs backwards. Ticked by mistake, every load, unload and top-up runs the wrong way.',
+steps_mm:'Motor steps per 1 mm of filament; every distance is converted with it. Measured at about 250–261; do not change it without measuring.',
+api_key:'<b>Leave it empty</b> normally. Enter the Moonraker API key only when the status shows “refused (needs API key)”. A wrong key makes Moonraker refuse a connection that worked before. Saving it empty keeps the stored key.',
+sensor:'The switch sensor that tells whether the filament has reached the %P extruder. It drives “Stop loading at the extruder” and, when not printing, the rule “no top-ups while the extruder is empty”. Pick the one at the toolhead or extruder; a runout sensor next to the spool gives wrong answers. “Auto” prefers sensors named toolhead, extruder and the like.',
+nofeed_mm:'While printing, if %P extrudes this much and the feeder never tops up, it alarms like a jam (pausing and notifying as set). It means the filament is not coming through the feeder: the extruder slips, a refill did not join, or the carriage sensor is broken. Set 0 when you print without the buffer on purpose.',
+extruder_extra_mm:'With “Stop loading at the extruder” on, the feeder feeds this much more after the sensor sees the filament, and the load distance becomes a limit. About 10 mm when the sensor sits at the extruder; for a sensor far from it (next to the spool, say) enter that tube length.',
+lock_move_distance:'Unticked, a load that reaches the sensor recalibrates “Feed distance”, and full unloads learn their length. Ticked, only the two distances under Controls are used, and a full unload is limited by “Retract distance”. Tick it once the distances are right and should stay that way.',
+free_on_unload:'When the unload G-code sends <code>M117 PBF:FREE</code>, the motor is switched off and the gear spins freely, so %P pulls the filament out for tip forming; a bare <code>M117</code> at the end of the G-code grips again. Without that line in the unload G-code this never happens.',
+free_on_retract:'Fallback when there is no M117 marker (an unload from the %P touch screen, for example): while %P is not printing and its retractions add up to more than the length below, it counts as an unload and the gear is released. PAUSE retracts only about 3 mm, so it does not trigger this.'}:{
 pressure:'輔助進料時推料的馬達電流（L1＝250mA，每級加 50mA）。太低推不開緩衝活動件，會誤報卡料；太高只是馬達比較熱。建議用「壓力測試」決定。改了<b>立即套用</b>。',
 move_level:'上料、退料、手動進退用的電流。這些動作要拖動整條管子裡的耗材，需要的力氣比輔助進料大很多；選「同壓力級別」而壓力級別又很低時，長距離進退料容易打滑。建議維持 L8。',
 hold_ma:'齒輪停著時夾住耗材的電流。太低時 %P 會直接把料從齒輪拉過去，緩衝不會動作；太高則整場列印馬達都比較熱。壓力測試會找出最低值再加餘裕；不會超過運轉電流。',
@@ -379,7 +489,7 @@ free_on_retract:'沒有 M117 訊號時（例如用 %P 觸控螢幕退料）的�
     const el=$('#cfg').elements[name],lab=el&&el.closest('label');if(!lab)continue;
     el.id=el.id||'f_'+name;lab.htmlFor=el.id;  // else the label would point at the "?" button
     const b=document.createElement('button');b.type='button';b.className='q';b.textContent='?';
-    b.setAttribute('aria-label','說明');b.setAttribute('aria-controls','helpbox');b.setAttribute('aria-expanded','false');
+    b.setAttribute('aria-label',L('說明','Help'));b.setAttribute('aria-controls','helpbox');b.setAttribute('aria-expanded','false');
     b.onclick=()=>{
       if(open)open.setAttribute('aria-expanded','false');
       if(open===b){open=null;box.remove();return}
@@ -388,30 +498,30 @@ free_on_retract:'沒有 M117 訊號時（例如用 %P 觸控螢幕退料）的�
     const t=document.createElement('span');lab.prepend(t);t.append(t.nextSibling,b);  // "?" right after the text
   }}
 function setLog(open){
-  const p=$('#log'),b=$('#logbtn');p.hidden=!open;b.textContent=open?'摺疊記錄 ▴':'展開記錄 ▾';
+  const p=$('#log'),b=$('#logbtn');p.hidden=!open;b.textContent=open?L('摺疊記錄 ▴','Hide log ▴'):L('展開記錄 ▾','Show log ▾');
   b.setAttribute('aria-expanded',open);if(open)p.scrollTop=p.scrollHeight;
   try{localStorage.setItem('pbf_log_open',open?'1':'0')}catch(e){}
 }
 $('#logbtn').onclick=()=>setLog($('#log').hidden);
 {let open=false;try{open=localStorage.getItem('pbf_log_open')==='1'}catch(e){}setLog(open)}
-$('#load_mm').onchange=()=>post('/api/settings',{load_mm:$('#load_mm').value}).then(()=>actMsg('進料距離已儲存')).catch(e=>actMsg('儲存失敗：'+e.message));
-$('#unload_mm').onchange=()=>post('/api/settings',{unload_mm:$('#unload_mm').value}).then(()=>actMsg('退料距離已儲存')).catch(e=>actMsg('儲存失敗：'+e.message));
+$('#load_mm').onchange=()=>post('/api/settings',{load_mm:$('#load_mm').value}).then(()=>actMsg(L('進料距離已儲存','Feed distance saved'))).catch(e=>actMsg(saveFailed(e)));
+$('#unload_mm').onchange=()=>post('/api/settings',{unload_mm:$('#unload_mm').value}).then(()=>actMsg(L('退料距離已儲存','Retract distance saved'))).catch(e=>actMsg(saveFailed(e)));
 $('#cfg').onsubmit=async e=>{
   e.preventDefault();const b={};
   for(const el of e.target.elements){if(!el.name)continue;b[el.name]=el.type==='checkbox'?(el.checked?1:0):el.value}
   if(!b.api_key)delete b.api_key;  // empty = keep the stored key
-  try{await post('/api/settings',b);cfgMsg('已儲存');loadCfg();refresh()}catch(e){cfgMsg('儲存失敗：'+e.message)}
+  try{await post('/api/settings',b);cfgMsg(L('已儲存','Saved'));loadCfg();refresh()}catch(e){cfgMsg(saveFailed(e))}
 };
 $('#wifi').onsubmit=async e=>{
-  e.preventDefault();if(!confirm('儲存 WiFi 設定並重新開機？'))return;
-  await post('/api/wifi',{ssid:e.target.ssid.value,pass:e.target.pass.value});$('#msg').textContent='重新開機中…';
+  e.preventDefault();if(!confirm(L('儲存 WiFi 設定並重新開機？','Save the WiFi settings and restart?')))return;
+  await post('/api/wifi',{ssid:e.target.ssid.value,pass:e.target.pass.value});$('#msg').textContent=L('重新開機中…','Restarting…');
 };
 $('#fwbtn').onclick=()=>{
-  const f=$('#fwfile').files[0];if(!f)return;if(!confirm('上傳 '+f.name+' 並重新開機？'))return;
+  const f=$('#fwfile').files[0];if(!f)return;if(!confirm(L('上傳 '+f.name+' 並重新開機？','Upload '+f.name+' and restart?')))return;
   const x=new XMLHttpRequest();
-  x.upload.onprogress=e=>$('#fwmsg').textContent='上傳中 '+Math.round(e.loaded/e.total*100)+'%';
-  x.onload=()=>$('#fwmsg').textContent=x.responseText==='OK'?'完成，重新開機中…':'失敗：'+x.responseText;
-  x.onerror=()=>$('#fwmsg').textContent='上傳失敗';
+  x.upload.onprogress=e=>$('#fwmsg').textContent=L('上傳中 ','Uploading ')+Math.round(e.loaded/e.total*100)+'%';
+  x.onload=()=>$('#fwmsg').textContent=x.responseText==='OK'?L('完成，重新開機中…','Done, restarting…'):L('失敗：','Failed: ')+x.responseText;
+  x.onerror=()=>$('#fwmsg').textContent=L('上傳失敗','Upload failed');
   const d=new FormData();d.append('firmware',f);x.open('POST','/update');x.send(d);
 };
 loadCfg();refresh();pollLog();setInterval(refresh,700);setInterval(pollLog,1000);

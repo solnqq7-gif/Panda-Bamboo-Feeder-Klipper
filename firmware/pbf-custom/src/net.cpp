@@ -112,7 +112,9 @@ void handleSettingsPost() {
   for (int i = 0; i < server.args(); i++) {
     if (server.argName(i) == "plain") continue;
     if (!settings::validate(server.argName(i), server.arg(i))) {
-      String error = "{\"error\":\"設定名稱或數值無效\",\"field\":";
+      String error = String("{\"error\":\"") +
+                     (settings::get().english ? "invalid setting name or value" : "設定名稱或數值無效") +
+                     "\",\"field\":";
       logbuf::appendJsonString(error, server.argName(i).c_str());
       error += '}';
       server.send(400, "application/json", error);

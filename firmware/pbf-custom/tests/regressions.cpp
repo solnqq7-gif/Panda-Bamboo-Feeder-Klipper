@@ -105,6 +105,7 @@ constexpr float kFollowStopMmS = 0.5f;
 constexpr uint32_t kFreeQuietMs = 3000;
 const Settings &cfg() { return settings::get(); }
 const char *pn() { return "Printer"; }
+const char *tr(const char *zh, const char *) { return zh; }
 uint32_t topUpBlockRemainingMs(uint32_t) { return 0; }
 void logf(const char *, ...) {}
 bool canFree() { return !moonraker::isPrinting(); }
@@ -183,6 +184,8 @@ void settingsCases() {
   check(settings::set("nofeed_mm", "0", false), "zero disables no-feed watch");
   check(!settings::set("nofeed_mm", "1", false), "no-feed threshold gap rejected");
   check(settings::set("nofeed_mm", "30", false), "no-feed minimum accepted");
+  check(settings::set("english", "1", false) && settings::get().english, "English can be chosen");
+  check(settings::set("english", "0", false) && !settings::get().english, "and Chinese again");
   check(settings::set("move_level", "0", false), "zero move level keeps inheritance");
   check(settings::set("printer_port", "65535", false), "port upper bound accepted");
   check(!settings::set("printer_port", "65536", false), "overflowing port rejected");

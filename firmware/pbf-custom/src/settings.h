@@ -72,6 +72,8 @@ struct Settings {
                                  // printing is an unload, so let go rather than chase it
   uint8_t free_retract_mm = 25;  // a print retraction is a few mm; PAUSE on this printer is 3
   bool notify_runout = true;     // push notification when the tail leaves the feeder
+  bool english = false;          // web page, push notifications and API errors in English instead
+                                 // of Traditional Chinese (the OLED and the log are English anyway)
   String wifi_ssid;             // empty = not configured (imported from the stock firmware once)
   String wifi_pass;
 };

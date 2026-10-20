@@ -57,15 +57,16 @@ push notification through Mobileraker Companion.
 - **Standby**: releases the gear (no holding current) while the printer is idle and cold, and
   grips again as soon as it heats.
 - **Setup tests**: buffer travel, plus the lowest run and holding currents that work.
-- **Web page** (Traditional Chinese) with live status, log, settings and firmware upload; a "?"
-  beside the trickier settings explains them. There is also a JSON API, OTA updates, and an OLED
+- **Web page** in English or Traditional Chinese (switch at the top right; push notifications
+  follow the same language) with live status, log, settings and firmware upload; a "?" beside
+  the trickier settings explains them. There is also a JSON API, OTA updates, and an OLED
   status screen (English).
 - Talks to the printer through **Moonraker** over WiFi. An API key is optional, for Moonraker
   setups that do not trust the feeder's address.
 
 ## Status
 
-Version **0.11.8**. Developed and used on a **Creality K1 Max**. Other Klipper printers should
+Version **0.11.9**. Developed and used on a **Creality K1 Max**. Other Klipper printers should
 work but have not been tested yet. Firmware binaries will be published under **Releases** once
 the current version has been verified on the hardware. Changes per version are listed under
 [Changelog](#changelog).
@@ -120,12 +121,15 @@ they do not connect to a printer.
 <details>
 <summary>Recent versions (click to expand)</summary>
 
+- **0.11.9**: English web page. The English/中文 button at the top right switches the language
+  for the whole feeder: the web page, push notifications and settings error messages. 204 host
+  checks; flashed by OTA with all settings kept, language switch checked on the hardware.
 - **0.11.8**: a "?" next to the 15 settings that are easiest to get wrong on the web page;
   tapping it opens a short explanation under that row.
 - **0.11.7**: the "heater off" and other hold messages are replaced once the printer heats again
   or a top-up starts (before, the stale text stayed on screen for the whole next print; feeding
   was not affected). 0.11.7 and 0.11.8 build and pass 202 host checks; flashed by OTA with all
-  settings kept.
+  settings kept. The fixed message was confirmed on the hardware.
 - **0.11.6**: relaxes the buffer once the printer's nozzle target drops to 0: it pulls the parked
   slack back until the carriage is home (never further, at most the parking amount + 6 mm), so
   the printer's tube fitting is not pulled on through the end-of-print moves and the idle time;

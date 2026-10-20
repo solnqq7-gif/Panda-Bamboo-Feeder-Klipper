@@ -381,6 +381,8 @@ uint32_t buf_last_cycle_ms = 0;
 const Settings &cfg() { return settings::get(); }
 // The printer's name as the user typed it ("Printer" by default), for everything the user reads.
 const char *pn() { return cfg().printer_name.c_str(); }
+// Push notifications follow the web page's language setting.
+const char *tr(const char *zh, const char *en) { return cfg().english ? en : zh; }
 
 uint32_t topUpBlockRemainingMs(uint32_t now) {
   if (!topup_block_until_ms) return 0;
@@ -670,8 +672,9 @@ void enterRunout(const char *msg) {
   refill_assist = false;
   enter(State::kTailOut, msg);
   if (tail_passed && cfg().notify_runout) {
-    String body = String("料尾已離開喂竹器，") + pn() + " 將執行斷料流程";
-    moonraker::notify("PBF: 耗材用完", body.c_str());
+    String body = String(tr("料尾已離開喂竹器，", "The tail has left the feeder, ")) + pn() +
+                  tr(" 將執行斷料流程", " takes over the runout");
+    moonraker::notify(tr("PBF: 耗材用完", "PBF: filament ran out"), body.c_str());
   }
 }
 
@@ -898,9 +901,10 @@ void nofeedTick() {
        pn(), used);
   if (cfg().pause_on_stuck) {
     moonraker::sendGcode("PAUSE");
-    String body = String(pn()) + " 已經擠出 " + String(used, 0) +
-                  "mm，喂竹器一直沒有輔助進料：請檢查擠出機有沒有吃料";
-    moonraker::notify("PBF: 沒有輔助進料", body.c_str());
+    String body = String(pn()) + tr(" 已經擠出 ", " has extruded ") + String(used, 0) +
+                  tr("mm，喂竹器一直沒有輔助進料：請檢查擠出機有沒有吃料",
+                     " mm and the feeder never topped up: check that the extruder takes filament");
+    moonraker::notify(tr("PBF: 沒有輔助進料", "PBF: no feed"), body.c_str());
   }
 }
 
@@ -1742,7 +1746,9 @@ void updateFeeding(const io::Sensors &s, bool in1_fall) {
     enterAlarm(State::kStuck, "fed " + String(fed, 0) + "mm, buffer still empty");
     if (cfg().pause_on_stuck && !testActive()) {
       if (moonraker::isPrinting()) moonraker::sendGcode("PAUSE");
-      moonraker::notify("PBF: 卡料", "輔助進料後緩衝沒有回來，請檢查線盤或路徑");
+      moonraker::notify(tr("PBF: 卡料", "PBF: jam"),
+                        tr("輔助進料後緩衝沒有回來，請檢查線盤或路徑",
+                           "The buffer did not refill after a top-up: check the spool and the path"));
     }
     return;
   }
@@ -1787,7 +1793,9 @@ void updateUnloading(const io::Sensors &s) {
       // filament by hand at this point is what gets it out.
       stats::addUnloadJam();
       enterAlarm(State::kError, "tip stuck: " + String(moved, 0) + "mm pulled, still in the gear");
-      moonraker::notify("PBF: 退料卡住", "料尾沒有退出齒輪，請手動拉一下耗材");
+      moonraker::notify(tr("PBF: 退料卡住", "PBF: unload stuck"),
+                        tr("料尾沒有退出齒輪，請手動拉一下耗材",
+                           "The tip did not leave the gear: pull the filament out by hand"));
     } else if (s.in2) {
       // Distance done but the filament is still in the gear: stay loaded, just idle.
       enter(State::kStaged, "retracted " + String(moved, 0) + "mm");
@@ -2187,8 +2195,9 @@ void runState(const io::Sensors &s, uint32_t now) {
           logf("load: fed %.0f mm and the %s filament sensor never triggered - check for a "
                "crooked or caught filament",
                fed, pn());
-          String body = String("送完設定距離，") + pn() + " 仍然沒偵測到耗材，請手動檢查";
-          moonraker::notify("PBF: 上料沒到位", body.c_str());
+          String body = String(tr("送完設定距離，", "Fed the set distance but ")) + pn() +
+                        tr(" 仍然沒偵測到耗材，請手動檢查", " still does not see the filament: please check");
+          moonraker::notify(tr("PBF: 上料沒到位", "PBF: load incomplete"), body.c_str());
         } else {
           enter(State::kReady, "loaded " + String(pos() - load_start_pos, 0) + "mm" +
                                    (load_reached_ext ? " (at extruder)" : ""));
@@ -2916,7 +2925,7 @@ void cmdFullTest() {
 
 void cmdNotifyTest() {
   logf("sending a test notification to %s (Mobileraker)", pn());
-  moonraker::notify("PBF 測試", "喂竹器推播正常");
+  moonraker::notify(tr("PBF 測試", "PBF test"), tr("喂竹器推播正常", "Feeder notifications work"));
 }
 
 void setVerbose(bool on) { verbose = on; }
