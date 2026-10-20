@@ -46,6 +46,11 @@ pre{background:var(--bg);border-radius:8px;padding:8px;height:260px;overflow:aut
 .grp h3{margin:8px 0 0}
 .grp label:last-child{border-bottom:0}
 .grp input,.grp select{background:var(--card)}
+.q{position:relative;width:20px;height:20px;padding:0;margin-left:5px;vertical-align:-3px;border-radius:50%;
+border:1.5px solid var(--mut);background:none;color:var(--mut);font-size:12px;font-weight:700;line-height:1}
+.q::after{content:'';position:absolute;inset:-10px}
+.q[aria-expanded=true]{background:var(--acc);border-color:var(--acc);color:#fff}
+.help{font-size:13px;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:8px 10px;margin:6px 0}
 .grp.motor{background:var(--g-motor)}.grp.speed{background:var(--g-speed)}
 .grp.screen{background:var(--g-screen)}.grp.prn{background:var(--g-prn)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -125,7 +130,8 @@ button.test.run{border-color:var(--warn);color:var(--warn)}
 
 <div class="card"><h2>設定</h2>
 <form id="cfg">
-  <p class="mut" style="margin:0 0 8px">兩個電流級別選單改了就立即套用；其他欄位要按最下面的「儲存設定」。</p>
+  <p class="mut" style="margin:0 0 8px">兩個電流級別選單改了就立即套用；其他欄位要按最下面的「儲存設定」。
+  有 <b>?</b> 的欄位比較容易設錯，點一下看說明。</p>
   <div class="grp motor"><h3>馬達與緩衝</h3>
   <label>壓力級別<select name="pressure"></select></label>
   <label>進退料電流級別<select name="move_level"></select></label>
@@ -351,6 +357,36 @@ $('#cfg').move_level.onchange=()=>post('/api/settings',{move_level:$('#cfg').mov
 $('#keyclr').onclick=async()=>{if(!confirm('清除 API key？'))return;
   try{await post('/api/settings',{api_key:''});cfgMsg('API key 已清除');loadCfg()}catch(e){cfgMsg('儲存失敗：'+e.message)}};
 function cfgMsg(t){$('#cfgmsg').textContent=t;setTimeout(()=>$('#cfgmsg').textContent='',2000)}
+// A "?" only next to the settings that are easy to get wrong. One shared box opens under the row.
+const HELP={
+pressure:'輔助進料時推料的馬達電流（L1＝250mA，每級加 50mA）。太低推不開緩衝活動件，會誤報卡料；太高只是馬達比較熱。建議用「壓力測試」決定。改了<b>立即套用</b>。',
+move_level:'上料、退料、手動進退用的電流。這些動作要拖動整條管子裡的耗材，需要的力氣比輔助進料大很多；選「同壓力級別」而壓力級別又很低時，長距離進退料容易打滑。建議維持 L8。',
+hold_ma:'齒輪停著時夾住耗材的電流。太低時 %P 會直接把料從齒輪拉過去，緩衝不會動作；太高則整場列印馬達都比較熱。壓力測試會找出最低值再加餘裕；不會超過運轉電流。',
+overfeed_mm:'活動件被撐開後再多送的量，決定緩衝平常停在行程的哪裡。越大存料越多、輔助進料次數越少；但太接近行程盡頭就沒有空間吸收 %P 的回抽，拉力會落在擠出機的管子卡扣上。用「緩衝量測試」自動設定（行程減 5mm）。',
+stuck_mm:'輔助進料送了這麼多，活動件還在原位（沒被撐開）就判定卡料並警報。太小容易誤報；太大時，萬一管子從擠出機卡扣脫出，會往鬆掉的管子裡推更多料。',
+idle_release:'勾選後喂竹器一停下就讓齒輪空轉，%P 會直接從料捲拉料穿過齒輪，緩衝完全不會動作。<b>要用緩衝就不要勾。</b>想省電請用下面的「省電待機」，它只在 %P 確定不會用料時才放開。',
+invert_dir:'只有換過馬達或接線、進料變成退料時才勾。勾錯的話所有進退料和輔助進料都會反向。',
+steps_mm:'馬達轉幾步等於送 1mm 耗材，所有距離都靠它換算。實測約 250～261；沒有實際量過就不要改。',
+api_key:'平常<b>留空</b>。只有狀態列顯示「被拒絕（要 API key）」時才填 Moonraker 的 API key。填錯的 key 會讓原本連得上的連線也被拒絕。留空儲存＝不變。',
+sensor:'用來判斷耗材有沒有到 %P 擠出機的開關式感測器，影響「進料到擠出機自動停」，以及沒在列印時「擠出機沒料就不輔助進料」的判斷。要選噴頭／擠出機上的那顆，選到料架旁的斷料感測器會判斷錯誤。「自動」會優先挑名稱含 toolhead、extruder 等字的感測器。',
+nofeed_mm:'列印中 %P 擠出了這麼多，喂竹器卻一次都沒輔助進料，就當成卡料警報（依設定暫停列印並推播）。代表料不是從喂竹器來的：擠出機打滑、續料沒接上、或活動件感測器壞了。刻意不經過緩衝列印時設 0。',
+extruder_extra_mm:'「進料到擠出機自動停」開著時，感測器偵測到料後再送這麼多才停，原本的進料距離變成上限。感測器就在擠出機上時約 10mm；感測器離擠出機比較遠（例如裝在料架旁）就填那段管長。',
+lock_move_distance:'不勾時，進料碰到感測器會自動校準「距離進料」，完整退料也會學習退料長度。勾選後只用操作區填的兩個距離，「退到無料」的上限也直接用「距離退料」。距離量好、不想再被自動改寫時才勾。',
+free_on_unload:'退料 G-code 送出 <code>M117 PBF:FREE</code> 時，馬達斷電讓齒輪空轉，%P 自己把料抽出來做尖端成形；G-code 結尾送 <code>M117</code> 清掉就夾回來。退料 G-code 裡沒有這行就不會觸發。',
+free_on_retract:'沒有 M117 訊號時（例如用 %P 觸控螢幕退料）的備援：%P 沒在列印、累計回抽超過下面設定的長度，就當成退料並放開齒輪。PAUSE 只回抽約 3mm，不會誤觸發。'};
+{const box=document.createElement('div');box.className='help';box.id='helpbox';let open=null;
+  for(const[name,text]of Object.entries(HELP)){
+    const el=$('#cfg').elements[name],lab=el&&el.closest('label');if(!lab)continue;
+    el.id=el.id||'f_'+name;lab.htmlFor=el.id;  // else the label would point at the "?" button
+    const b=document.createElement('button');b.type='button';b.className='q';b.textContent='?';
+    b.setAttribute('aria-label','說明');b.setAttribute('aria-controls','helpbox');b.setAttribute('aria-expanded','false');
+    b.onclick=()=>{
+      if(open)open.setAttribute('aria-expanded','false');
+      if(open===b){open=null;box.remove();return}
+      open=b;b.setAttribute('aria-expanded','true');box.innerHTML=P(text);lab.after(box);
+    };
+    const t=document.createElement('span');lab.prepend(t);t.append(t.nextSibling,b);  // "?" right after the text
+  }}
 function setLog(open){
   const p=$('#log'),b=$('#logbtn');p.hidden=!open;b.textContent=open?'摺疊記錄 ▴':'展開記錄 ▾';
   b.setAttribute('aria-expanded',open);if(open)p.scrollTop=p.scrollHeight;

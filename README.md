@@ -42,7 +42,7 @@ Traditional Chinese.
 
 ## Status
 
-Version 0.11.6. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
+Version 0.11.8. Developed and used on a **Creality K1 Max**. Other Klipper printers should work
 but have not been tested yet. Firmware binaries will be published under **Releases** once
 the current version has been verified on the hardware.
 
@@ -86,13 +86,18 @@ python tests/run_regressions.py
 ```
 
 These exercise the production control functions with simulated printer and hardware inputs;
-they do not connect to a printer. Version 0.11.6 relaxes the buffer once the printer's nozzle
+they do not connect to a printer. Version 0.11.8 adds a "?" next to the 15 settings that are
+easiest to get wrong on the web page; tapping it opens a short explanation under that row.
+Version 0.11.7 replaces the "heater off" and other hold messages once the printer heats again or
+a top-up starts (before, the stale text stayed on screen for the whole next print; feeding was
+not affected). Both build and pass 202 host checks; flashed by OTA with all settings kept.
+Version 0.11.6 relaxes the buffer once the printer's nozzle
 target drops to 0: it pulls the parked slack back until the carriage is home (never further,
 at most the parking amount + 6 mm), so the printer's tube fitting is not pulled on through the
 end-of-print moves and the idle time; the next top-up after heating refills it. It builds and
 passes 193 host checks. Flashed by OTA: settings were kept, and at boot (printer idle, carriage
-out) it relaxed 2.8 mm and stopped with the carriage home. The end-of-print relax has not been
-seen on the hardware yet.
+out) it relaxed 2.8 mm and stopped with the carriage home. The end-of-print relax was seen on
+the hardware on 2026-10-21 (15.6 mm, carriage home), and all 9 prints since then completed.
 Version 0.11.5 caps a full unload (double BACK) at the
 measured unload length + 20 mm instead of x1.3, and always finishes the last 15 mm once the
 tip has cleared the gear. It builds and passes 170 host checks; OTA startup and preserved settings have been verified.

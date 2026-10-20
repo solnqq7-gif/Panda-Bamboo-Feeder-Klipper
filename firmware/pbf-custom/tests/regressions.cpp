@@ -569,10 +569,41 @@ void relaxCases() {
   test_pos = 0;
 }
 
+// READY's message stays on screen through every top-up, so a stale hold text would last a print.
+void holdMessageCases() {
+  moonraker::value = moonraker::Snapshot();
+  heater_off = true;
+  message = "Printer heater off";
+  endHoldMessage(false);
+  check(message == "Printer heater off", "heater message stays while the heater is off");
+  heater_off = false;
+  endHoldMessage(false);
+  check(message == "buffer on", "heater message goes when the printer heats again");
+  moonraker::value.fresh = true;
+  moonraker::value.print_state = moonraker::PrintState::kPrinting;
+  message = "Printer heater off";
+  endHoldMessage(false);
+  check(message == "Printer printing: buffer on", "a print that heats up says the buffer is on");
+  message = "relaxing buffer 8mm";
+  endHoldMessage(false);
+  check(message == "Printer printing: buffer on", "a relax message goes on reheating too");
+  for (const char *anchor : {"waiting for Printer", "Printer extruder empty"}) {
+    message = anchor;
+    endHoldMessage(false);
+    check(message == anchor, "an anchor hold keeps its message until a top-up starts");
+    endHoldMessage(true);
+    check(message == "Printer printing: buffer on", "a starting top-up ends the anchor message");
+  }
+  message = "loaded 1040mm (at extruder)";
+  endHoldMessage(true);
+  check(message == "loaded 1040mm (at extruder)", "other READY messages are left alone");
+  moonraker::value = moonraker::Snapshot();
+}
+
 int main() {
   settingsCases(); cleanupCases(); menuCases(); freeCases(); keyCases(); unloadCases();
-  relaxCases();
+  relaxCases(); holdMessageCases();
   std::cout << "PASS: " << checks
             << " regression checks (settings/API, cleanup, menu, FREE, manual keys, unload limit, "
-               "cold relax)\n";
+               "cold relax, hold messages)\n";
 }

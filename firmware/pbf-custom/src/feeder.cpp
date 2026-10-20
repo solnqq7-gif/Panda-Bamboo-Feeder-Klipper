@@ -610,6 +610,21 @@ void relaxTick(const io::Sensors &s, uint32_t now) {
   message = "relaxing buffer";
 }
 
+// READY's message stays on screen through every top-up (see feed_prev_msg), so the text that
+// explains a hold has to go once the hold is over. In October 2026 "K1 heater off" stayed up for a
+// whole print: the print had woken the feeder while the printer heated its bed, nozzle target
+// still 0. A heater message goes when the printer heats again; any hold message goes when a
+// top-up starts, because a top-up only starts with nothing holding it.
+void endHoldMessage(bool topping_up) {
+  String p = pn();
+  bool heater = message == p + " heater off" || message.startsWith("relaxing buffer");
+  bool anchor = message == String("waiting for ") + p || message == p + " extruder empty";
+  bool over = topping_up ? heater || anchor : heater && !printerHeaterOff();
+  if (!over) return;
+  message = "buffer on";
+  if (moonraker::isPrinting()) message = p + " printing: buffer on";
+}
+
 // K1 is printing and the user asked for the keys to be locked meanwhile. A lost link keeps the
 // lock: the print goes on without Wi-Fi, so only a fresh "not printing" from the printer opens
 // it again (or turning the lock or the K1 link off, or restarting the feeder).
@@ -756,7 +771,10 @@ float stuckLimitMm() {
 }
 
 void startFeedingEpisode(bool push = false) {
-  if (state == State::kReady) feed_prev_msg = message;
+  if (state == State::kReady) {
+    endHoldMessage(true);
+    feed_prev_msg = message;
+  }
   episode_push = push;
   episode_refill = preload_done_ms && millis() - preload_done_ms < kRefillGraceMs && !testActive();
   refill_logged = false;
@@ -2196,6 +2214,7 @@ void runState(const io::Sensors &s, uint32_t now) {
       heldCarriageTick(s);
       if (refillTick(s, now)) break;
       relaxTick(s, now);  // only with the carriage out, so it never meets a top-up
+      endHoldMessage(false);
       if (!jogging && !motor::isMoving() && bufferEmpty(s) && !btestOwnsMotor()) {
         uint32_t blocked_ms = topUpBlockRemainingMs(now);
         if (blocked_ms) {

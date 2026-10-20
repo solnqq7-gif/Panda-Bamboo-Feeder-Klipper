@@ -30,6 +30,7 @@ class String {
   bool operator==(const String &s) const { return value == s.value; }
   bool operator!=(const String &s) const { return value != s.value; }
   friend String operator+(const String &a, const String &b) { return a.value + b.value; }
+  bool startsWith(const String &s) const { return value.rfind(s.value, 0) == 0; }
   void remove(size_t n) { value.erase(n); }
   void trim() {
     auto first = value.find_first_not_of(" \r\n\t");
