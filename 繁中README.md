@@ -37,7 +37,7 @@ English: [`README.md`](README.md)
 
 ## 目前狀態
 
-**v0.11.9**。在 **Creality K1 Max** 上開發和使用。其他 Klipper 印表機應該可以用，但還沒有人實測。燒錄用的 bin 檔會在目前版本實機驗證後放到 **Releases**。各版本的變更見下方[版本紀錄](#版本紀錄)。
+**v0.11.9**。在 **Creality K1 Max** 上開發和使用。其他 Klipper 印表機應該可以用，但還沒有人實測。燒錄用的四個檔案和 `SHA256SUMS.txt` 在 [**Releases**](https://github.com/solnqq7-gif/Panda-Bamboo-Feeder-Klipper/releases/latest)。各版本的變更見下方[版本紀錄](#版本紀錄)。
 
 ## 需要
 

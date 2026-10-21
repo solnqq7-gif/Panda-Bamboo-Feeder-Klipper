@@ -67,9 +67,9 @@ push notification through Mobileraker Companion.
 ## Status
 
 Version **0.11.9**. Developed and used on a **Creality K1 Max**. Other Klipper printers should
-work but have not been tested yet. Firmware binaries will be published under **Releases** once
-the current version has been verified on the hardware. Changes per version are listed under
-[Changelog](#changelog).
+work but have not been tested yet. Ready-to-flash files (four binaries plus `SHA256SUMS.txt`) are
+under [**Releases**](https://github.com/solnqq7-gif/Panda-Bamboo-Feeder-Klipper/releases/latest).
+Changes per version are listed under [Changelog](#changelog).
 
 ## Requirements
 
