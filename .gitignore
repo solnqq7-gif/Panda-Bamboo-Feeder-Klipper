@@ -8,6 +8,10 @@
 !/LICENSE
 !/THIRD_PARTY_NOTICES.md
 
+!/.github/
+/.github/*
+!/.github/FUNDING.yml
+
 !/docs/
 /docs/*
 !/docs/使用說明.md

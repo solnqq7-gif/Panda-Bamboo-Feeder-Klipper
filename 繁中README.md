@@ -89,6 +89,12 @@ python tests/run_regressions.py
 
 </details>
 
+## 支持
+
+如果這個專案對你有幫助，歡迎請我喝杯咖啡 ☕
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lornfall)
+
 ## 授權
 
 MIT，見 [`LICENSE`](LICENSE)。第三方元件見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

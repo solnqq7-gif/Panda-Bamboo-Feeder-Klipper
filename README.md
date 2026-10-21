@@ -148,6 +148,12 @@ they do not connect to a printer.
 
 </details>
 
+## Support
+
+If my work helped you, you can buy me a coffee ☕
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lornfall)
+
 ## License
 
 MIT, see [`LICENSE`](LICENSE). Third-party components are listed in
