@@ -50,12 +50,12 @@ English: [`README.md`](README.md)
 
 ## 文件
 
-| 檔案 | 內容 |
-|---|---|
-| [`docs/安裝說明.md`](docs/安裝說明.md) | 安裝：工具、備份、燒錄、印表機端檢查清單、疑難排解 |
-| [`docs/使用說明.md`](docs/使用說明.md) | 使用：按鍵、螢幕、狀態、網頁、設定 |
-| [`docs/tip-forming-generic.md`](docs/tip-forming-generic.md) | 通用版退料／進料 G-code 範例（示範 `M117 PBF:…` 的用法） |
-| [`docs/tip-forming.md`](docs/tip-forming.md) | Creality K1 Max 實測版 |
+| 中文 | English | 內容 |
+|---|---|---|
+| [`docs/安裝說明.md`](docs/安裝說明.md) | [`docs/en/installation.md`](docs/en/installation.md) | 安裝：工具、備份、燒錄、印表機端檢查清單、疑難排解 |
+| [`docs/使用說明.md`](docs/使用說明.md) | [`docs/en/user-guide.md`](docs/en/user-guide.md) | 使用：按鍵、螢幕、狀態、網頁、設定 |
+| [`docs/tip-forming-generic.md`](docs/tip-forming-generic.md) | [`docs/en/tip-forming-generic.md`](docs/en/tip-forming-generic.md) | 通用版退料／進料 G-code 範例（示範 `M117 PBF:…` 的用法） |
+| [`docs/tip-forming.md`](docs/tip-forming.md) | [`docs/en/tip-forming.md`](docs/en/tip-forming.md) | Creality K1 Max 實測版 |
 
 ## 自己編譯
 

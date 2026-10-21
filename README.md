@@ -6,7 +6,7 @@ does not use the stock 5-way hub: the feeder outlet goes straight to the printer
 tube.
 
 For Traditional Chinese, see [`繁中README.md`](繁中README.md). The detailed guides are in
-Traditional Chinese.
+English under [`docs/en/`](docs/en/), with the Traditional Chinese originals in [`docs/`](docs/).
 
 > [!WARNING]
 > **Not affiliated with BIQU / BigTreeTech.** Flashing replaces the stock firmware. Back up the
@@ -81,16 +81,16 @@ Changes per version are listed under [Changelog](#changelog).
   Companion on the printer
 
 The full checklist, tools and flashing steps are in
-[`docs/安裝說明.md`](docs/安裝說明.md).
+[`docs/en/installation.md`](docs/en/installation.md).
 
 ## Documentation
 
-| File | Content |
-|---|---|
-| [`docs/安裝說明.md`](docs/安裝說明.md) | Installation: tools, backup, flashing, printer checklist, troubleshooting |
-| [`docs/使用說明.md`](docs/使用說明.md) | User guide: keys, screen, states, web page, settings |
-| [`docs/tip-forming-generic.md`](docs/tip-forming-generic.md) | Unload/load G-code templates for any Klipper printer (how to use `M117 PBF:…`) |
-| [`docs/tip-forming.md`](docs/tip-forming.md) | The same, as tested on a Creality K1 Max |
+| English | 繁體中文 | Content |
+|---|---|---|
+| [`docs/en/installation.md`](docs/en/installation.md) | [`docs/安裝說明.md`](docs/安裝說明.md) | Installation: tools, backup, flashing, printer checklist, troubleshooting |
+| [`docs/en/user-guide.md`](docs/en/user-guide.md) | [`docs/使用說明.md`](docs/使用說明.md) | User guide: keys, screen, states, web page, settings |
+| [`docs/en/tip-forming-generic.md`](docs/en/tip-forming-generic.md) | [`docs/tip-forming-generic.md`](docs/tip-forming-generic.md) | Unload/load G-code templates for any Klipper printer (how to use `M117 PBF:…`) |
+| [`docs/en/tip-forming.md`](docs/en/tip-forming.md) | [`docs/tip-forming.md`](docs/tip-forming.md) | The same, as tested on a Creality K1 Max |
 
 ## Building from source
 
