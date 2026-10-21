@@ -14,6 +14,12 @@
 !/docs/安裝說明.md
 !/docs/tip-forming.md
 !/docs/tip-forming-generic.md
+!/docs/en/
+/docs/en/*
+!/docs/en/user-guide.md
+!/docs/en/installation.md
+!/docs/en/tip-forming.md
+!/docs/en/tip-forming-generic.md
 
 !/firmware/
 /firmware/*
