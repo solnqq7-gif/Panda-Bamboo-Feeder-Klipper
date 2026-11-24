@@ -5,6 +5,14 @@ into a **filament buffer and load/unload assistant for single-extruder Klipper p
 does not use the stock 5-way hub: the feeder outlet goes straight to the printer through a PTFE
 tube.
 
+<p>
+  <img src="docs/images/setup.jpg" width="62%" alt="Filament box, feeder on a stand, and a PTFE tube running to the Creality K1 Max">
+  <img src="docs/images/screen.jpg" width="36%" alt="Feeder screen showing STANDBY, K1 idle: gear released, current, IP address and sensor states">
+</p>
+
+My setup on a Creality K1 Max: filament box, feeder, then a PTFE tube straight to the printer.
+Right: the feeder's screen in standby.
+
 For Traditional Chinese, see [`繁中README.md`](繁中README.md). The detailed guides are in
 English under [`docs/en/`](docs/en/), with the Traditional Chinese originals in [`docs/`](docs/).
 

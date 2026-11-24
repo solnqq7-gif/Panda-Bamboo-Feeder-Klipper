@@ -2,6 +2,13 @@
 
 BIQU **Panda Bamboo Feeder**（喂竹器）的非官方替換韌體，把它變成**單色 Klipper 印表機用的耗材緩衝器**，加上進料、退料時的輔助推送。**不用原廠 5通**：喂竹器出料口直接用鐵氟龍管接到印表機。
 
+<p>
+  <img src="docs/images/setup.jpg" width="62%" alt="料盒、架上的喂竹器，鐵氟龍管接到 Creality K1 Max">
+  <img src="docs/images/screen.jpg" width="36%" alt="喂竹器螢幕顯示 STANDBY、K1 idle: gear released、電流、IP 與感測器狀態">
+</p>
+
+我在 Creality K1 Max 上的配置：料盒 → 喂竹器 → 鐵氟龍管直接進印表機。右圖是喂竹器待機時的螢幕。
+
 English: [`README.md`](README.md)
 
 > [!WARNING]

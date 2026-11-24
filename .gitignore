@@ -24,6 +24,10 @@
 !/docs/en/installation.md
 !/docs/en/tip-forming.md
 !/docs/en/tip-forming-generic.md
+!/docs/images/
+/docs/images/*
+!/docs/images/setup.jpg
+!/docs/images/screen.jpg
 
 !/firmware/
 /firmware/*
