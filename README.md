@@ -152,7 +152,7 @@ they do not connect to a printer.
 
 If my work helped you, you can buy me a coffee ☕
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lornfall)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/solnqq)
 
 ## License
 
