@@ -93,7 +93,7 @@ python tests/run_regressions.py
 
 如果這個專案對你有幫助，歡迎請我喝杯咖啡 ☕
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/lornfall)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/solnqq)
 
 ## 授權
 
